@@ -1,514 +1,23 @@
 // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
 let currentUser = null;
-let peerConnection = null;
-let activeChat = null;
-let contacts = new Map();
-let messages = new Map();
-let typingTimeout = null;
-let unreadMessages = new Map();
-let onlineStatusInterval = null;
-let notificationPermission = false;
 
-// ==================== СИГНАЛЬНЫЙ СЕРВЕР FIREBASE ====================
-const signalServer = {
-    // Слушаем входящие сигналы
-    listenForSignals: async () => {
-        if (!currentUser) return;
-        
-        db.collection('signals')
-            .where('targetUserId', '==', currentUser.uid)
-            .onSnapshot(async (snapshot) => {
-                snapshot.docChanges().forEach(async (change) => {
-                    if (change.type === 'added') {
-                        const signal = change.doc.data();
-                        
-                        try {
-                            switch (signal.type) {
-                                case 'offer':
-                                    await handleIncomingOffer(signal);
-                                    break;
-                                case 'answer':
-                                    await peerConnection?.handleAnswer(signal);
-                                    break;
-                                case 'candidate':
-                                    await peerConnection?.handleIceCandidate(signal);
-                                    break;
-                                case 'call':
-                                    await handleIncomingCall(signal);
-                                    break;
-                            }
-                        } catch (error) {
-                            console.error('Error processing signal:', error);
-                        }
-                        
-                        // Удаляем обработанный сигнал
-                        await change.doc.ref.delete();
-                    }
-                });
-            }, (error) => {
-                console.error('Error listening to signals:', error);
-            });
-    },
+// ==================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ====================
+function switchTab(tab) {
+    const loginTab = document.getElementById('loginTab');
+    const registerTab = document.getElementById('registerTab');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
     
-    // Отправить сигнал
-    sendSignal: async (targetUserId, signalData) => {
-        if (!currentUser) return false;
-        
-        try {
-            await db.collection('signals').add({
-                ...signalData,
-                targetUserId,
-                fromUserId: currentUser.uid,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            return true;
-        } catch (error) {
-            console.error('Error sending signal:', error);
-            return false;
-        }
-    },
-    
-    // Отправить предложение
-    sendOffer: async (targetUserId, offerData) => {
-        return signalServer.sendSignal(targetUserId, {
-            ...offerData,
-            type: 'offer'
-        });
-    },
-    
-    // Отправить ответ
-    sendAnswer: async (targetUserId, answerData) => {
-        return signalServer.sendSignal(targetUserId, {
-            ...answerData,
-            type: 'answer'
-        });
-    },
-    
-    // Отправить ICE кандидат
-    sendIceCandidate: async (targetUserId, candidate) => {
-        return signalServer.sendSignal(targetUserId, {
-            type: 'candidate',
-            candidate,
-            fromUserId: currentUser.uid
-        });
-    }
-};
-
-// ==================== P2P СОЕДИНЕНИЕ ====================
-class PeerConnection {
-    constructor(userId, userCode, userName) {
-        this.userId = userId;
-        this.userCode = userCode;
-        this.userName = userName;
-        this.connections = new Map(); // userId -> {peer, channel, status, userCode, userName}
-        this.pendingCandidates = new Map();
-        this.messageHandlers = [];
-        this.statusHandlers = [];
-        this.typingHandlers = [];
-        this.readReceiptHandlers = [];
-        
-        // Конфигурация STUN серверов
-        this.config = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' },
-                { urls: 'stun:stun.services.mozilla.com' }
-            ],
-            iceCandidatePoolSize: 10
-        };
-    }
-    
-    // Создать предложение для подключения
-    async createOffer(targetUserId, targetUserCode, targetUserName) {
-        try {
-            const peer = new RTCPeerConnection(this.config);
-            const channel = peer.createDataChannel('chat', {
-                ordered: true,
-                maxRetransmits: 3
-            });
-            
-            this.setupDataChannel(channel, targetUserId);
-            this.setupPeerConnection(peer, targetUserId);
-            
-            const offer = await peer.createOffer({
-                offerToReceiveAudio: false,
-                offerToReceiveVideo: false
-            });
-            
-            await peer.setLocalDescription(offer);
-            
-            // Сохраняем соединение
-            this.connections.set(targetUserId, {
-                peer,
-                channel,
-                status: 'connecting',
-                userCode: targetUserCode,
-                userName: targetUserName
-            });
-            
-            return {
-                offer: peer.localDescription,
-                fromUserId: this.userId,
-                fromUserCode: this.userCode,
-                fromUserName: this.userName,
-                targetUserId
-            };
-        } catch (error) {
-            console.error('Error creating offer:', error);
-            throw error;
-        }
-    }
-    
-    // Обработать входящее предложение
-    async handleOffer(offerData) {
-        const { offer, fromUserId, fromUserCode, fromUserName } = offerData;
-        
-        try {
-            const peer = new RTCPeerConnection(this.config);
-            
-            peer.ondatachannel = (event) => {
-                const channel = event.channel;
-                this.setupDataChannel(channel, fromUserId);
-                
-                const conn = this.connections.get(fromUserId);
-                if (conn) {
-                    conn.channel = channel;
-                }
-            };
-            
-            this.setupPeerConnection(peer, fromUserId);
-            
-            await peer.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-            
-            // Сохраняем соединение
-            this.connections.set(fromUserId, {
-                peer,
-                status: 'connecting',
-                userCode: fromUserCode,
-                userName: fromUserName
-            });
-            
-            return {
-                answer: peer.localDescription,
-                fromUserId: this.userId,
-                fromUserCode: this.userCode,
-                targetUserId: fromUserId
-            };
-        } catch (error) {
-            console.error('Error handling offer:', error);
-            throw error;
-        }
-    }
-    
-    // Обработать ответ
-    async handleAnswer(answerData) {
-        const { answer, fromUserId } = answerData;
-        const conn = this.connections.get(fromUserId);
-        
-        if (conn && conn.peer) {
-            try {
-                await conn.peer.setRemoteDescription(new RTCSessionDescription(answer));
-                
-                // Добавляем ожидающие ICE кандидаты
-                const candidates = this.pendingCandidates.get(fromUserId) || [];
-                for (const candidate of candidates) {
-                    await conn.peer.addIceCandidate(new RTCIceCandidate(candidate));
-                }
-                this.pendingCandidates.delete(fromUserId);
-            } catch (error) {
-                console.error('Error handling answer:', error);
-            }
-        }
-    }
-    
-    // Обработать ICE кандидат
-    async handleIceCandidate(candidateData) {
-        const { candidate, fromUserId } = candidateData;
-        const conn = this.connections.get(fromUserId);
-        
-        if (conn && conn.peer && conn.peer.remoteDescription) {
-            try {
-                await conn.peer.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (error) {
-                console.error('Error adding ICE candidate:', error);
-            }
-        } else {
-            // Сохраняем кандидата для будущего использования
-            if (!this.pendingCandidates.has(fromUserId)) {
-                this.pendingCandidates.set(fromUserId, []);
-            }
-            this.pendingCandidates.get(fromUserId).push(candidate);
-        }
-    }
-    
-    // Настройка PeerConnection
-    setupPeerConnection(peer, targetUserId) {
-        peer.onicecandidate = (event) => {
-            if (event.candidate) {
-                signalServer.sendIceCandidate(targetUserId, event.candidate);
-            }
-        };
-        
-        peer.oniceconnectionstatechange = () => {
-            console.log(`ICE connection state with ${targetUserId}:`, peer.iceConnectionState);
-            
-            if (peer.iceConnectionState === 'connected' || 
-                peer.iceConnectionState === 'completed') {
-                this.updateConnectionStatus(targetUserId, 'connected');
-            } else if (peer.iceConnectionState === 'disconnected' ||
-                       peer.iceConnectionState === 'failed') {
-                this.updateConnectionStatus(targetUserId, 'disconnected');
-            }
-        };
-        
-        peer.onconnectionstatechange = () => {
-            console.log(`Connection state with ${targetUserId}:`, peer.connectionState);
-            
-            if (peer.connectionState === 'connected') {
-                this.updateConnectionStatus(targetUserId, 'connected');
-            } else if (peer.connectionState === 'disconnected' ||
-                       peer.connectionState === 'failed') {
-                this.updateConnectionStatus(targetUserId, 'disconnected');
-            }
-        };
-        
-        peer.onicecandidateerror = (error) => {
-            console.error('ICE candidate error:', error);
-        };
-    }
-    
-    // Настройка DataChannel
-    setupDataChannel(channel, targetUserId) {
-        channel.onopen = () => {
-            console.log('Data channel opened with', targetUserId);
-            this.updateConnectionStatus(targetUserId, 'connected');
-            
-            // Отправляем приветственное сообщение
-            this.sendSystemMessage(targetUserId, 'connected');
-        };
-        
-        channel.onclose = () => {
-            console.log('Data channel closed with', targetUserId);
-            this.updateConnectionStatus(targetUserId, 'disconnected');
-        };
-        
-        channel.onerror = (error) => {
-            console.error('Data channel error:', error);
-            this.updateConnectionStatus(targetUserId, 'error');
-        };
-        
-        channel.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                switch (data.type) {
-                    case 'message':
-                        this.handleIncomingMessage(targetUserId, data);
-                        break;
-                    case 'typing':
-                        this.handleTypingIndicator(targetUserId, data);
-                        break;
-                    case 'read':
-                        this.handleReadReceipt(targetUserId, data);
-                        break;
-                    case 'system':
-                        this.handleSystemMessage(targetUserId, data);
-                        break;
-                }
-            } catch (error) {
-                console.error('Error parsing message:', error);
-            }
-        };
-    }
-    
-    // Обновить статус соединения
-    updateConnectionStatus(userId, status) {
-        const conn = this.connections.get(userId);
-        if (conn) {
-            conn.status = status;
-            this.statusHandlers.forEach(handler => handler(userId, status));
-        }
-    }
-    
-    // Отправить сообщение
-    sendMessage(targetUserId, message) {
-        const conn = this.connections.get(targetUserId);
-        
-        if (conn && conn.channel && conn.channel.readyState === 'open') {
-            const messageData = {
-                type: 'message',
-                id: this.generateMessageId(),
-                text: message.text,
-                fromUserId: this.userId,
-                toUserId: targetUserId,
-                timestamp: Date.now(),
-                status: 'sent'
-            };
-            
-            try {
-                conn.channel.send(JSON.stringify(messageData));
-                
-                // Имитируем доставку
-                setTimeout(() => {
-                    this.simulateDelivery(targetUserId, messageData.id);
-                }, 1000);
-                
-                return messageData;
-            } catch (error) {
-                console.error('Error sending message:', error);
-                return null;
-            }
-        }
-        
-        return null;
-    }
-    
-    // Симулировать доставку
-    simulateDelivery(userId, messageId) {
-        const conn = this.connections.get(userId);
-        if (conn && conn.channel && conn.channel.readyState === 'open') {
-            conn.channel.send(JSON.stringify({
-                type: 'delivered',
-                messageId,
-                fromUserId: userId
-            }));
-        }
-    }
-    
-    // Отправить системное сообщение
-    sendSystemMessage(targetUserId, type) {
-        const conn = this.connections.get(targetUserId);
-        if (conn && conn.channel && conn.channel.readyState === 'open') {
-            conn.channel.send(JSON.stringify({
-                type: 'system',
-                systemType: type,
-                fromUserId: this.userId,
-                timestamp: Date.now()
-            }));
-        }
-    }
-    
-    // Отправить индикатор печатания
-    sendTyping(targetUserId, isTyping) {
-        const conn = this.connections.get(targetUserId);
-        if (conn && conn.channel && conn.channel.readyState === 'open') {
-            conn.channel.send(JSON.stringify({
-                type: 'typing',
-                isTyping,
-                fromUserId: this.userId,
-                timestamp: Date.now()
-            }));
-        }
-    }
-    
-    // Отправить подтверждение прочтения
-    sendReadReceipt(targetUserId, messageIds) {
-        const conn = this.connections.get(targetUserId);
-        if (conn && conn.channel && conn.channel.readyState === 'open') {
-            conn.channel.send(JSON.stringify({
-                type: 'read',
-                messageIds,
-                fromUserId: this.userId,
-                timestamp: Date.now()
-            }));
-        }
-    }
-    
-    // Обработать входящее сообщение
-    handleIncomingMessage(fromUserId, data) {
-        // Сохраняем сообщение
-        if (!messages.has(fromUserId)) {
-            messages.set(fromUserId, []);
-        }
-        messages.get(fromUserId).push(data);
-        
-        // Уведомляем обработчики
-        this.messageHandlers.forEach(handler => handler(fromUserId, data));
-        
-        // Автоматически отправляем подтверждение прочтения, если чат открыт
-        if (activeChat === fromUserId) {
-            this.sendReadReceipt(fromUserId, [data.id]);
-        }
-    }
-    
-    // Обработать индикатор печатания
-    handleTypingIndicator(fromUserId, data) {
-        this.typingHandlers.forEach(handler => handler(fromUserId, data.isTyping));
-    }
-    
-    // Обработать подтверждение прочтения
-    handleReadReceipt(fromUserId, data) {
-        this.readReceiptHandlers.forEach(handler => handler(fromUserId, data.messageIds));
-    }
-    
-    // Обработать системное сообщение
-    handleSystemMessage(fromUserId, data) {
-        console.log('System message:', data);
-    }
-    
-    // Генерация ID сообщения
-    generateMessageId() {
-        return Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    }
-    
-    // Добавить обработчик сообщений
-    onMessage(handler) {
-        this.messageHandlers.push(handler);
-    }
-    
-    // Добавить обработчик статуса
-    onStatusChange(handler) {
-        this.statusHandlers.push(handler);
-    }
-    
-    // Добавить обработчик печатания
-    onTyping(handler) {
-        this.typingHandlers.push(handler);
-    }
-    
-    // Добавить обработчик прочтения
-    onReadReceipt(handler) {
-        this.readReceiptHandlers.push(handler);
-    }
-    
-    // Получить статус соединения
-    getConnectionStatus(userId) {
-        const conn = this.connections.get(userId);
-        return conn ? conn.status : 'disconnected';
-    }
-    
-    // Получить информацию о пользователе
-    getUserInfo(userId) {
-        const conn = this.connections.get(userId);
-        return conn ? {
-            userCode: conn.userCode,
-            userName: conn.userName,
-            status: conn.status
-        } : null;
-    }
-    
-    // Закрыть соединение
-    closeConnection(userId) {
-        const conn = this.connections.get(userId);
-        if (conn) {
-            if (conn.channel) conn.channel.close();
-            if (conn.peer) conn.peer.close();
-            this.connections.delete(userId);
-        }
-    }
-    
-    // Закрыть все соединения
-    closeAllConnections() {
-        for (const [userId, conn] of this.connections) {
-            if (conn.channel) conn.channel.close();
-            if (conn.peer) conn.peer.close();
-        }
-        this.connections.clear();
+    if (tab === 'login') {
+        loginTab.classList.add('active');
+        registerTab.classList.remove('active');
+        loginForm.classList.add('active');
+        registerForm.classList.remove('active');
+    } else {
+        registerTab.classList.add('active');
+        loginTab.classList.remove('active');
+        registerForm.classList.add('active');
+        loginForm.classList.remove('active');
     }
 }
 
@@ -524,19 +33,72 @@ function generateUserCode() {
     return code;
 }
 
-// Регистрация
-async function register() {
-    const username = document.getElementById('username')?.value.trim();
-    const email = document.getElementById('email')?.value;
-    const password = document.getElementById('password')?.value;
+// Валидация email
+function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Показать уведомление
+function showNotification(message, type = 'info') {
+    // Создаем уведомление
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
     
+    // Добавляем стили, если их нет
+    if (!document.querySelector('#notification-styles')) {
+        const style = document.createElement('style');
+        style.id = 'notification-styles';
+        style.textContent = `
+            .notification {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 10px;
+                color: white;
+                animation: slideIn 0.3s ease;
+                z-index: 10000;
+                max-width: 300px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            }
+            .notification.success { background: #4caf50; }
+            .notification.error { background: #ff6b6b; }
+            .notification.info { background: #667eea; }
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // Удаляем через 3 секунды
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+// ==================== РЕГИСТРАЦИЯ ====================
+async function register() {
+    console.log('Регистрация начата');
+    
+    const username = document.getElementById('register-username')?.value.trim();
+    const email = document.getElementById('register-email')?.value.trim();
+    const password = document.getElementById('register-password')?.value;
+    
+    console.log('Получены данные:', { username, email, password: '***' });
+    
+    // Валидация
     if (!username || !email || !password) {
         showNotification('Пожалуйста, заполните все поля', 'error');
         return;
     }
     
-    if (password.length < 6) {
-        showNotification('Пароль должен быть не менее 6 символов', 'error');
+    if (username.length < 2) {
+        showNotification('Имя должно быть не менее 2 символов', 'error');
         return;
     }
     
@@ -545,26 +107,43 @@ async function register() {
         return;
     }
     
+    if (password.length < 6) {
+        showNotification('Пароль должен быть не менее 6 символов', 'error');
+        return;
+    }
+    
     try {
-        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        const userCode = generateUserCode();
+        showNotification('Регистрация...', 'info');
         
-        // Создаем профиль пользователя
+        // Создаем пользователя в Firebase Auth
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        console.log('Пользователь создан в Auth:', userCredential.user.uid);
+        
+        // Генерируем уникальный код
+        const userCode = generateUserCode();
+        console.log('Сгенерирован код:', userCode);
+        
+        // Создаем профиль в Firestore
         await db.collection('users').doc(userCredential.user.uid).set({
             username: username,
             email: email,
             code: userCode,
             online: true,
-            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        showNotification(`✅ Регистрация успешна!\nВаш уникальный код: ${userCode}`, 'success', 10000);
+        console.log('Профиль создан в Firestore');
+        
+        showNotification(`✅ Регистрация успешна!\nВаш код: ${userCode}`, 'success');
         
         // Очищаем поля
-        document.getElementById('username').value = '';
-        document.getElementById('email').value = '';
-        document.getElementById('password').value = '';
+        document.getElementById('register-username').value = '';
+        document.getElementById('register-email').value = '';
+        document.getElementById('register-password').value = '';
+        
+        // Переключаем на вкладку входа
+        switchTab('login');
         
     } catch (error) {
         console.error('Ошибка регистрации:', error);
@@ -580,4 +159,213 @@ async function register() {
             case 'auth/weak-password':
                 errorMessage += 'Пароль должен быть не менее 6 символов';
                 break;
-          
+            default:
+                errorMessage += error.message;
+        }
+        
+        showNotification(errorMessage, 'error');
+    }
+}
+
+// ==================== ВХОД ====================
+async function login() {
+    console.log('Вход начат');
+    
+    const email = document.getElementById('login-email')?.value.trim();
+    const password = document.getElementById('login-password')?.value;
+    
+    if (!email || !password) {
+        showNotification('Введите email и пароль', 'error');
+        return;
+    }
+    
+    try {
+        showNotification('Вход...', 'info');
+        
+        await auth.signInWithEmailAndPassword(email, password);
+        
+        console.log('Вход выполнен успешно');
+        showNotification('✅ Вход выполнен!', 'success');
+        
+        // Очищаем поля
+        document.getElementById('login-email').value = '';
+        document.getElementById('login-password').value = '';
+        
+    } catch (error) {
+        console.error('Ошибка входа:', error);
+        
+        let errorMessage = 'Ошибка входа: ';
+        switch(error.code) {
+            case 'auth/user-not-found':
+                errorMessage += 'Пользователь не найден';
+                break;
+            case 'auth/wrong-password':
+                errorMessage += 'Неверный пароль';
+                break;
+            case 'auth/invalid-email':
+                errorMessage += 'Неверный формат email';
+                break;
+            default:
+                errorMessage += error.message;
+        }
+        
+        showNotification(errorMessage, 'error');
+    }
+}
+
+// ==================== ВХОД ПО КОДУ ====================
+async function loginWithCode() {
+    console.log('Вход по коду начат');
+    
+    const code = document.getElementById('login-code')?.value.trim().toUpperCase();
+    
+    if (!code || code.length !== 12) {
+        showNotification('Введите 12-значный код', 'error');
+        return;
+    }
+    
+    try {
+        showNotification('🔍 Поиск пользователя...', 'info');
+        
+        // Ищем пользователя по коду
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('code', '==', code).get();
+        
+        if (snapshot.empty) {
+            showNotification('❌ Пользователь с таким кодом не найден', 'error');
+            return;
+        }
+        
+        const userData = snapshot.docs[0].data();
+        
+        showNotification(
+            `✅ Найден пользователь: ${userData.username}\n` +
+            `Используйте email и пароль для входа`,
+            'info'
+        );
+        
+        // Подставляем email в форму входа
+        document.getElementById('login-email').value = userData.email;
+        document.getElementById('login-password').focus();
+        
+        // Переключаем на вкладку входа
+        switchTab('login');
+        
+    } catch (error) {
+        console.error('Ошибка поиска:', error);
+        showNotification('Ошибка: ' + error.message, 'error');
+    }
+}
+
+// ==================== ВЫХОД ====================
+async function logout() {
+    try {
+        if (currentUser) {
+            // Обновляем статус на офлайн
+            await db.collection('users').doc(currentUser.uid).update({
+                online: false,
+                lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        await auth.signOut();
+        showNotification('👋 До свидания!', 'info');
+        
+    } catch (error) {
+        console.error('Ошибка при выходе:', error);
+        await auth.signOut();
+    }
+}
+
+// ==================== ПОКАЗ/СКРЫТИЕ КОНТЕЙНЕРОВ ====================
+function showChat() {
+    document.getElementById('auth-container').style.display = 'none';
+    document.getElementById('chat-container').style.display = 'flex';
+}
+
+function showAuth() {
+    document.getElementById('auth-container').style.display = 'flex';
+    document.getElementById('chat-container').style.display = 'none';
+}
+
+// ==================== МОБИЛЬНЫЕ ФУНКЦИИ ====================
+function toggleMobileMenu() {
+    document.querySelector('.sidebar')?.classList.toggle('active');
+}
+
+function goBack() {
+    document.querySelector('.chat-area')?.classList.remove('active');
+}
+
+// ==================== СЛУШАТЕЛЬ СОСТОЯНИЯ АУТЕНТИФИКАЦИИ ====================
+auth.onAuthStateChanged(async (user) => {
+    console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
+    
+    if (user) {
+        currentUser = user;
+        
+        try {
+            // Проверяем, есть ли профиль пользователя
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            
+            if (!userDoc.exists) {
+                // Создаем профиль, если его нет
+                const userCode = generateUserCode();
+                await db.collection('users').doc(user.uid).set({
+                    username: user.email.split('@')[0],
+                    email: user.email,
+                    code: userCode,
+                    online: true,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                showNotification(`Ваш код: ${userCode}`, 'info');
+            } else {
+                // Обновляем статус онлайн
+                await db.collection('users').doc(user.uid).update({
+                    online: true,
+                    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Показываем код пользователя
+                const userData = userDoc.data();
+                document.getElementById('userCodeValue').textContent = userData.code;
+            }
+            
+            showChat();
+            showNotification('Добро пожаловать!', 'success');
+            
+        } catch (error) {
+            console.error('Error in auth state change:', error);
+            showNotification('Ошибка загрузки профиля', 'error');
+        }
+        
+    } else {
+        currentUser = null;
+        showAuth();
+    }
+});
+
+// ==================== ОБРАБОТКА ЗАКРЫТИЯ СТРАНИЦЫ ====================
+window.addEventListener('beforeunload', async () => {
+    if (currentUser) {
+        try {
+            await db.collection('users').doc(currentUser.uid).update({
+                online: false,
+                lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (error) {
+            console.error('Error updating status:', error);
+        }
+    }
+});
+
+// ==================== ЭКСПОРТ ФУНКЦИЙ ====================
+window.switchTab = switchTab;
+window.register = register;
+window.login = login;
+window.loginWithCode = loginWithCode;
+window.logout = logout;
+window.toggleMobileMenu = toggleMobileMenu;
+window.goBack = goBack;
