@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flux Messenger</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+</head>
+<body>
+    <div class="container" id="auth-container">
+        <div class="auth-box">
+            <h1 class="logo">⚡ Flux</h1>
+            <div class="auth-form">
+                <input type="email" id="email" placeholder="Email" class="auth-input">
+                <input type="password" id="password" placeholder="Пароль" class="auth-input">
+                <button onclick="login()" class="auth-btn">Войти</button>
+                <button onclick="register()" class="auth-btn secondary">Регистрация</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="chat-container" style="display: none;">
+        <div class="chat-header">
+            <h2 class="logo-small">⚡ Flux</h2>
+            <button onclick="logout()" class="logout-btn">Выйти</button>
+        </div>
+        
+        <div class="chat-main">
+            <div class="users-sidebar">
+                <h3>Участники</h3>
+                <div id="users-list"></div>
+            </div>
+            
+            <div class="chat-area">
+                <div id="messages" class="messages"></div>
+                
+                <div class="message-input-area">
+                    <textarea id="messageInput" placeholder="Написать сообщение..." rows="2"></textarea>
+                    <button onclick="sendMessage()" class="send-btn">➤</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="firebase-config.js"></script>
+    <script src="app.js"></script>
+</body>
+  </html>
