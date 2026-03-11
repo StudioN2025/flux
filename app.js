@@ -1,71 +1,520 @@
-// Глобальные переменные
+// ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
 let currentUser = null;
 let peerConnection = null;
 let activeChat = null;
 let contacts = new Map();
 let messages = new Map();
 let typingTimeout = null;
+let unreadMessages = new Map();
+let onlineStatusInterval = null;
+let notificationPermission = false;
 
-// Сигнальный сервер Firebase
+// ==================== СИГНАЛЬНЫЙ СЕРВЕР FIREBASE ====================
 const signalServer = {
-    // Ожидание подключений
-    listenForOffers: async () => {
-        db.collection('signaling').where('targetUserId', '==', currentUser.uid)
-            .onSnapshot((snapshot) => {
+    // Слушаем входящие сигналы
+    listenForSignals: async () => {
+        if (!currentUser) return;
+        
+        db.collection('signals')
+            .where('targetUserId', '==', currentUser.uid)
+            .onSnapshot(async (snapshot) => {
                 snapshot.docChanges().forEach(async (change) => {
                     if (change.type === 'added') {
-                        const data = change.doc.data();
+                        const signal = change.doc.data();
                         
-                        if (data.type === 'offer') {
-                            await handleIncomingOffer(data);
-                        } else if (data.type === 'answer') {
-                            await peerConnection.handleAnswer(data);
-                        } else if (data.type === 'candidate') {
-                            await peerConnection.handleIceCandidate(data);
+                        try {
+                            switch (signal.type) {
+                                case 'offer':
+                                    await handleIncomingOffer(signal);
+                                    break;
+                                case 'answer':
+                                    await peerConnection?.handleAnswer(signal);
+                                    break;
+                                case 'candidate':
+                                    await peerConnection?.handleIceCandidate(signal);
+                                    break;
+                                case 'call':
+                                    await handleIncomingCall(signal);
+                                    break;
+                            }
+                        } catch (error) {
+                            console.error('Error processing signal:', error);
                         }
                         
-                        // Удаляем обработанное сообщение
-                        change.doc.ref.delete();
+                        // Удаляем обработанный сигнал
+                        await change.doc.ref.delete();
                     }
                 });
+            }, (error) => {
+                console.error('Error listening to signals:', error);
             });
+    },
+    
+    // Отправить сигнал
+    sendSignal: async (targetUserId, signalData) => {
+        if (!currentUser) return false;
+        
+        try {
+            await db.collection('signals').add({
+                ...signalData,
+                targetUserId,
+                fromUserId: currentUser.uid,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            return true;
+        } catch (error) {
+            console.error('Error sending signal:', error);
+            return false;
+        }
     },
     
     // Отправить предложение
     sendOffer: async (targetUserId, offerData) => {
-        await db.collection('signaling').add({
+        return signalServer.sendSignal(targetUserId, {
             ...offerData,
-            type: 'offer',
-            targetUserId,
-            fromUserId: currentUser.uid,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            type: 'offer'
         });
     },
     
     // Отправить ответ
     sendAnswer: async (targetUserId, answerData) => {
-        await db.collection('signaling').add({
+        return signalServer.sendSignal(targetUserId, {
             ...answerData,
-            type: 'answer',
-            targetUserId,
-            fromUserId: currentUser.uid,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            type: 'answer'
         });
     },
     
     // Отправить ICE кандидат
     sendIceCandidate: async (targetUserId, candidate) => {
-        await db.collection('signaling').add({
+        return signalServer.sendSignal(targetUserId, {
             type: 'candidate',
             candidate,
-            targetUserId,
-            fromUserId: currentUser.uid,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            fromUserId: currentUser.uid
         });
     }
 };
 
-// Генерируем 12-значный код
+// ==================== P2P СОЕДИНЕНИЕ ====================
+class PeerConnection {
+    constructor(userId, userCode, userName) {
+        this.userId = userId;
+        this.userCode = userCode;
+        this.userName = userName;
+        this.connections = new Map(); // userId -> {peer, channel, status, userCode, userName}
+        this.pendingCandidates = new Map();
+        this.messageHandlers = [];
+        this.statusHandlers = [];
+        this.typingHandlers = [];
+        this.readReceiptHandlers = [];
+        
+        // Конфигурация STUN серверов
+        this.config = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.services.mozilla.com' }
+            ],
+            iceCandidatePoolSize: 10
+        };
+    }
+    
+    // Создать предложение для подключения
+    async createOffer(targetUserId, targetUserCode, targetUserName) {
+        try {
+            const peer = new RTCPeerConnection(this.config);
+            const channel = peer.createDataChannel('chat', {
+                ordered: true,
+                maxRetransmits: 3
+            });
+            
+            this.setupDataChannel(channel, targetUserId);
+            this.setupPeerConnection(peer, targetUserId);
+            
+            const offer = await peer.createOffer({
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            });
+            
+            await peer.setLocalDescription(offer);
+            
+            // Сохраняем соединение
+            this.connections.set(targetUserId, {
+                peer,
+                channel,
+                status: 'connecting',
+                userCode: targetUserCode,
+                userName: targetUserName
+            });
+            
+            return {
+                offer: peer.localDescription,
+                fromUserId: this.userId,
+                fromUserCode: this.userCode,
+                fromUserName: this.userName,
+                targetUserId
+            };
+        } catch (error) {
+            console.error('Error creating offer:', error);
+            throw error;
+        }
+    }
+    
+    // Обработать входящее предложение
+    async handleOffer(offerData) {
+        const { offer, fromUserId, fromUserCode, fromUserName } = offerData;
+        
+        try {
+            const peer = new RTCPeerConnection(this.config);
+            
+            peer.ondatachannel = (event) => {
+                const channel = event.channel;
+                this.setupDataChannel(channel, fromUserId);
+                
+                const conn = this.connections.get(fromUserId);
+                if (conn) {
+                    conn.channel = channel;
+                }
+            };
+            
+            this.setupPeerConnection(peer, fromUserId);
+            
+            await peer.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            
+            // Сохраняем соединение
+            this.connections.set(fromUserId, {
+                peer,
+                status: 'connecting',
+                userCode: fromUserCode,
+                userName: fromUserName
+            });
+            
+            return {
+                answer: peer.localDescription,
+                fromUserId: this.userId,
+                fromUserCode: this.userCode,
+                targetUserId: fromUserId
+            };
+        } catch (error) {
+            console.error('Error handling offer:', error);
+            throw error;
+        }
+    }
+    
+    // Обработать ответ
+    async handleAnswer(answerData) {
+        const { answer, fromUserId } = answerData;
+        const conn = this.connections.get(fromUserId);
+        
+        if (conn && conn.peer) {
+            try {
+                await conn.peer.setRemoteDescription(new RTCSessionDescription(answer));
+                
+                // Добавляем ожидающие ICE кандидаты
+                const candidates = this.pendingCandidates.get(fromUserId) || [];
+                for (const candidate of candidates) {
+                    await conn.peer.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+                this.pendingCandidates.delete(fromUserId);
+            } catch (error) {
+                console.error('Error handling answer:', error);
+            }
+        }
+    }
+    
+    // Обработать ICE кандидат
+    async handleIceCandidate(candidateData) {
+        const { candidate, fromUserId } = candidateData;
+        const conn = this.connections.get(fromUserId);
+        
+        if (conn && conn.peer && conn.peer.remoteDescription) {
+            try {
+                await conn.peer.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (error) {
+                console.error('Error adding ICE candidate:', error);
+            }
+        } else {
+            // Сохраняем кандидата для будущего использования
+            if (!this.pendingCandidates.has(fromUserId)) {
+                this.pendingCandidates.set(fromUserId, []);
+            }
+            this.pendingCandidates.get(fromUserId).push(candidate);
+        }
+    }
+    
+    // Настройка PeerConnection
+    setupPeerConnection(peer, targetUserId) {
+        peer.onicecandidate = (event) => {
+            if (event.candidate) {
+                signalServer.sendIceCandidate(targetUserId, event.candidate);
+            }
+        };
+        
+        peer.oniceconnectionstatechange = () => {
+            console.log(`ICE connection state with ${targetUserId}:`, peer.iceConnectionState);
+            
+            if (peer.iceConnectionState === 'connected' || 
+                peer.iceConnectionState === 'completed') {
+                this.updateConnectionStatus(targetUserId, 'connected');
+            } else if (peer.iceConnectionState === 'disconnected' ||
+                       peer.iceConnectionState === 'failed') {
+                this.updateConnectionStatus(targetUserId, 'disconnected');
+            }
+        };
+        
+        peer.onconnectionstatechange = () => {
+            console.log(`Connection state with ${targetUserId}:`, peer.connectionState);
+            
+            if (peer.connectionState === 'connected') {
+                this.updateConnectionStatus(targetUserId, 'connected');
+            } else if (peer.connectionState === 'disconnected' ||
+                       peer.connectionState === 'failed') {
+                this.updateConnectionStatus(targetUserId, 'disconnected');
+            }
+        };
+        
+        peer.onicecandidateerror = (error) => {
+            console.error('ICE candidate error:', error);
+        };
+    }
+    
+    // Настройка DataChannel
+    setupDataChannel(channel, targetUserId) {
+        channel.onopen = () => {
+            console.log('Data channel opened with', targetUserId);
+            this.updateConnectionStatus(targetUserId, 'connected');
+            
+            // Отправляем приветственное сообщение
+            this.sendSystemMessage(targetUserId, 'connected');
+        };
+        
+        channel.onclose = () => {
+            console.log('Data channel closed with', targetUserId);
+            this.updateConnectionStatus(targetUserId, 'disconnected');
+        };
+        
+        channel.onerror = (error) => {
+            console.error('Data channel error:', error);
+            this.updateConnectionStatus(targetUserId, 'error');
+        };
+        
+        channel.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                switch (data.type) {
+                    case 'message':
+                        this.handleIncomingMessage(targetUserId, data);
+                        break;
+                    case 'typing':
+                        this.handleTypingIndicator(targetUserId, data);
+                        break;
+                    case 'read':
+                        this.handleReadReceipt(targetUserId, data);
+                        break;
+                    case 'system':
+                        this.handleSystemMessage(targetUserId, data);
+                        break;
+                }
+            } catch (error) {
+                console.error('Error parsing message:', error);
+            }
+        };
+    }
+    
+    // Обновить статус соединения
+    updateConnectionStatus(userId, status) {
+        const conn = this.connections.get(userId);
+        if (conn) {
+            conn.status = status;
+            this.statusHandlers.forEach(handler => handler(userId, status));
+        }
+    }
+    
+    // Отправить сообщение
+    sendMessage(targetUserId, message) {
+        const conn = this.connections.get(targetUserId);
+        
+        if (conn && conn.channel && conn.channel.readyState === 'open') {
+            const messageData = {
+                type: 'message',
+                id: this.generateMessageId(),
+                text: message.text,
+                fromUserId: this.userId,
+                toUserId: targetUserId,
+                timestamp: Date.now(),
+                status: 'sent'
+            };
+            
+            try {
+                conn.channel.send(JSON.stringify(messageData));
+                
+                // Имитируем доставку
+                setTimeout(() => {
+                    this.simulateDelivery(targetUserId, messageData.id);
+                }, 1000);
+                
+                return messageData;
+            } catch (error) {
+                console.error('Error sending message:', error);
+                return null;
+            }
+        }
+        
+        return null;
+    }
+    
+    // Симулировать доставку
+    simulateDelivery(userId, messageId) {
+        const conn = this.connections.get(userId);
+        if (conn && conn.channel && conn.channel.readyState === 'open') {
+            conn.channel.send(JSON.stringify({
+                type: 'delivered',
+                messageId,
+                fromUserId: userId
+            }));
+        }
+    }
+    
+    // Отправить системное сообщение
+    sendSystemMessage(targetUserId, type) {
+        const conn = this.connections.get(targetUserId);
+        if (conn && conn.channel && conn.channel.readyState === 'open') {
+            conn.channel.send(JSON.stringify({
+                type: 'system',
+                systemType: type,
+                fromUserId: this.userId,
+                timestamp: Date.now()
+            }));
+        }
+    }
+    
+    // Отправить индикатор печатания
+    sendTyping(targetUserId, isTyping) {
+        const conn = this.connections.get(targetUserId);
+        if (conn && conn.channel && conn.channel.readyState === 'open') {
+            conn.channel.send(JSON.stringify({
+                type: 'typing',
+                isTyping,
+                fromUserId: this.userId,
+                timestamp: Date.now()
+            }));
+        }
+    }
+    
+    // Отправить подтверждение прочтения
+    sendReadReceipt(targetUserId, messageIds) {
+        const conn = this.connections.get(targetUserId);
+        if (conn && conn.channel && conn.channel.readyState === 'open') {
+            conn.channel.send(JSON.stringify({
+                type: 'read',
+                messageIds,
+                fromUserId: this.userId,
+                timestamp: Date.now()
+            }));
+        }
+    }
+    
+    // Обработать входящее сообщение
+    handleIncomingMessage(fromUserId, data) {
+        // Сохраняем сообщение
+        if (!messages.has(fromUserId)) {
+            messages.set(fromUserId, []);
+        }
+        messages.get(fromUserId).push(data);
+        
+        // Уведомляем обработчики
+        this.messageHandlers.forEach(handler => handler(fromUserId, data));
+        
+        // Автоматически отправляем подтверждение прочтения, если чат открыт
+        if (activeChat === fromUserId) {
+            this.sendReadReceipt(fromUserId, [data.id]);
+        }
+    }
+    
+    // Обработать индикатор печатания
+    handleTypingIndicator(fromUserId, data) {
+        this.typingHandlers.forEach(handler => handler(fromUserId, data.isTyping));
+    }
+    
+    // Обработать подтверждение прочтения
+    handleReadReceipt(fromUserId, data) {
+        this.readReceiptHandlers.forEach(handler => handler(fromUserId, data.messageIds));
+    }
+    
+    // Обработать системное сообщение
+    handleSystemMessage(fromUserId, data) {
+        console.log('System message:', data);
+    }
+    
+    // Генерация ID сообщения
+    generateMessageId() {
+        return Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    }
+    
+    // Добавить обработчик сообщений
+    onMessage(handler) {
+        this.messageHandlers.push(handler);
+    }
+    
+    // Добавить обработчик статуса
+    onStatusChange(handler) {
+        this.statusHandlers.push(handler);
+    }
+    
+    // Добавить обработчик печатания
+    onTyping(handler) {
+        this.typingHandlers.push(handler);
+    }
+    
+    // Добавить обработчик прочтения
+    onReadReceipt(handler) {
+        this.readReceiptHandlers.push(handler);
+    }
+    
+    // Получить статус соединения
+    getConnectionStatus(userId) {
+        const conn = this.connections.get(userId);
+        return conn ? conn.status : 'disconnected';
+    }
+    
+    // Получить информацию о пользователе
+    getUserInfo(userId) {
+        const conn = this.connections.get(userId);
+        return conn ? {
+            userCode: conn.userCode,
+            userName: conn.userName,
+            status: conn.status
+        } : null;
+    }
+    
+    // Закрыть соединение
+    closeConnection(userId) {
+        const conn = this.connections.get(userId);
+        if (conn) {
+            if (conn.channel) conn.channel.close();
+            if (conn.peer) conn.peer.close();
+            this.connections.delete(userId);
+        }
+    }
+    
+    // Закрыть все соединения
+    closeAllConnections() {
+        for (const [userId, conn] of this.connections) {
+            if (conn.channel) conn.channel.close();
+            if (conn.peer) conn.peer.close();
+        }
+        this.connections.clear();
+    }
+}
+
+// ==================== ФУНКЦИИ АВТОРИЗАЦИИ ====================
+
+// Генерация 12-значного кода
 function generateUserCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
@@ -77,17 +526,22 @@ function generateUserCode() {
 
 // Регистрация
 async function register() {
-    const username = document.getElementById('username').value.trim();
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
+    const username = document.getElementById('username')?.value.trim();
+    const email = document.getElementById('email')?.value;
+    const password = document.getElementById('password')?.value;
     
     if (!username || !email || !password) {
-        alert('Пожалуйста, заполните все поля');
+        showNotification('Пожалуйста, заполните все поля', 'error');
         return;
     }
     
     if (password.length < 6) {
-        alert('Пароль должен быть не менее 6 символов');
+        showNotification('Пароль должен быть не менее 6 символов', 'error');
+        return;
+    }
+    
+    if (!isValidEmail(email)) {
+        showNotification('Введите корректный email', 'error');
         return;
     }
     
@@ -105,427 +559,25 @@ async function register() {
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        alert(`Ваш уникальный код: ${userCode}\nСохраните его!`);
+        showNotification(`✅ Регистрация успешна!\nВаш уникальный код: ${userCode}`, 'success', 10000);
+        
+        // Очищаем поля
+        document.getElementById('username').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
         
     } catch (error) {
         console.error('Ошибка регистрации:', error);
-        alert('Ошибка регистрации: ' + error.message);
-    }
-}
-
-// Вход по коду
-async function loginWithCode() {
-    const code = document.getElementById('loginCode').value.trim().toUpperCase();
-    
-    if (!code || code.length !== 12) {
-        alert('Введите 12-значный код');
-        return;
-    }
-    
-    try {
-        // Ищем пользователя по коду
-        const usersRef = db.collection('users');
-        const snapshot = await usersRef.where('code', '==', code).get();
         
-        if (snapshot.empty) {
-            alert('Пользователь с таким кодом не найден');
-            return;
-        }
-        
-        const userData = snapshot.docs[0].data();
-        
-        // Для простоты используем email для входа
-        // В реальном проекте нужно добавить возможность входа по коду
-        alert(`Найден пользователь: ${userData.username}\nДля входа используйте email и пароль`);
-        
-    } catch (error) {
-        console.error('Ошибка поиска:', error);
-        alert('Ошибка: ' + error.message);
-    }
-}
-
-// Поиск пользователя по коду
-async function findUser() {
-    const code = document.getElementById('searchCode').value.trim().toUpperCase();
-    
-    if (!code || code.length !== 12) {
-        alert('Введите 12-значный код');
-        return;
-    }
-    
-    try {
-        const usersRef = db.collection('users');
-        const snapshot = await usersRef.where('code', '==', code).get();
-        
-        const searchResult = document.getElementById('searchResult');
-        
-        if (snapshot.empty) {
-            searchResult.innerHTML = '<div class="not-found">❌ Пользователь не найден</div>';
-            searchResult.classList.add('show');
-            return;
-        }
-        
-        const userData = snapshot.docs[0].data();
-        const userId = snapshot.docs[0].id;
-        
-        searchResult.innerHTML = `
-            <div class="found-user">
-                <div class="found-user-info">
-                    <span class="found-user-name">${userData.username}</span>
-                    <span class="found-user-code">${userData.code}</span>
-                </div>
-                <button onclick="connectToUser('${userId}', '${userData.username}', '${userData.code}')" class="connect-btn">
-                    Подключиться
-                </button>
-            </div>
-        `;
-        searchResult.classList.add('show');
-        
-    } catch (error) {
-        console.error('Ошибка поиска:', error);
-        alert('Ошибка: ' + error.message);
-    }
-}
-
-// Подключение к пользователю
-async function connectToUser(userId, username, userCode) {
-    if (!peerConnection) {
-        alert('Сначала войдите в систему');
-        return;
-    }
-    
-    try {
-        // Создаем предложение
-        const offerData = await peerConnection.createOffer(userId, userCode, username);
-        
-        // Отправляем через сигнальный сервер
-        await signalServer.sendOffer(userId, offerData);
-        
-        // Добавляем в контакты
-        addToContacts(userId, username, userCode, 'connecting');
-        
-        // Показываем индикатор подключения
-        showNotification(`Подключаемся к ${username}...`);
-        
-    } catch (error) {
-        console.error('Ошибка подключения:', error);
-        alert('Не удалось подключиться: ' + error.message);
-    }
-}
-
-// Обработка входящего предложения
-async function handleIncomingOffer(data) {
-    const { fromUserId, fromUserCode, fromUserName, offer } = data;
-    
-    // Создаем ответ
-    const answerData = await peerConnection.handleOffer(data);
-    
-    // Отправляем ответ
-    await signalServer.sendAnswer(fromUserId, answerData);
-    
-    // Добавляем в контакты
-    addToContacts(fromUserId, fromUserName, fromUserCode, 'connecting');
-    
-    // Показываем уведомление
-    if (confirm(`${fromUserName} хочет подключиться к вам. Принять?`)) {
-        showNotification(`Подключение к ${fromUserName}...`);
-    } else {
-        // Отклоняем соединение
-        peerConnection.closeConnection(fromUserId);
-        removeFromContacts(fromUserId);
-    }
-}
-
-// Добавление в контакты
-function addToContacts(userId, username, userCode, status) {
-    if (!contacts.has(userId)) {
-        contacts.set(userId, {
-            id: userId,
-            username,
-            userCode,
-            status,
-            unread: 0
-        });
-        
-        renderContacts();
-    }
-}
-
-// Удаление из контактов
-function removeFromContacts(userId) {
-    contacts.delete(userId);
-    renderContacts();
-}
-
-// Отображение контактов
-function renderContacts() {
-    const contactsList = document.getElementById('contacts-list');
-    contactsList.innerHTML = '';
-    
-    const sortedContacts = Array.from(contacts.values())
-        .sort((a, b) => (a.status === 'connected' ? -1 : 1));
-    
-    sortedContacts.forEach(contact => {
-        const contactDiv = document.createElement('div');
-        contactDiv.className = `contact-item ${activeChat === contact.id ? 'active' : ''}`;
-        contactDiv.onclick = () => openChat(contact.id);
-        
-        contactDiv.innerHTML = `
-            <span class="contact-status ${contact.status === 'connected' ? 'online' : 'offline'}"></span>
-            <div class="contact-details">
-                <div class="contact-name">
-                    ${contact.username}
-                    ${contact.status === 'connected' ? '<span class="connection-status connected">✓</span>' : ''}
-                </div>
-                <div class="contact-code-small">${contact.userCode}</div>
-            </div>
-            ${contact.unread > 0 ? `<span class="unread-badge">${contact.unread}</span>` : ''}
-        `;
-        
-        contactsList.appendChild(contactDiv);
-    });
-}
-
-// Открыть чат
-function openChat(userId) {
-    activeChat = userId;
-    const contact = contacts.get(userId);
-    
-    if (!contact) return;
-    
-    // Обнуляем непрочитанные
-    contact.unread = 0;
-    renderContacts();
-    
-    // Показываем область чата
-    document.getElementById('chatArea').style.display = 'flex';
-    
-    // Обновляем заголовок
-    document.getElementById('contactName').textContent = contact.username;
-    document.getElementById('contactCode').textContent = contact.userCode;
-    
-    const statusDot = document.getElementById('contactStatus');
-    statusDot.className = `contact-status ${contact.status === 'connected' ? 'online' : 'offline'}`;
-    
-    // Загружаем сообщения
-    loadMessagesForChat(userId);
-    
-    // Активируем ввод
-    document.getElementById('messageInput').disabled = contact.status !== 'connected';
-    document.getElementById('sendBtn').disabled = contact.status !== 'connected';
-}
-
-// Загрузка сообщений для чата
-function loadMessagesForChat(userId) {
-    const messagesDiv = document.getElementById('messages');
-    messagesDiv.innerHTML = '';
-    
-    const chatMessages = messages.get(userId) || [];
-    
-    chatMessages.forEach(msg => {
-        displayMessage(msg, userId);
-    });
-    
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-// Отображение сообщения
-function displayMessage(message, chatUserId) {
-    const messagesDiv = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    
-    const isOwn = message.fromUserId === currentUser.uid;
-    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
-    
-    const time = new Date(message.timestamp).toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-    
-    let statusHtml = '';
-    if (isOwn && message.status) {
-        statusHtml = `<div class="message-status ${message.status}"></div>`;
-    }
-    
-    messageDiv.innerHTML = `
-        <div>${escapeHtml(message.text)}</div>
-        <div class="message-time">${time}${statusHtml}</div>
-    `;
-    
-    messagesDiv.appendChild(messageDiv);
-}
-
-// Отправка сообщения
-function sendMessage() {
-    const input = document.getElementById('messageInput');
-    const text = input.value.trim();
-    
-    if (!text || !activeChat || !peerConnection) return;
-    
-    const message = {
-        text,
-        fromUserId: currentUser.uid,
-        toUserId: activeChat,
-        timestamp: Date.now(),
-        type: 'text'
-    };
-    
-    // Отправляем P2P
-    const sent = peerConnection.sendMessage(activeChat, message);
-    
-    if (sent) {
-        // Сохраняем в локальной истории
-        if (!messages.has(activeChat)) {
-            messages.set(activeChat, []);
-        }
-        messages.get(activeChat).push({
-            ...message,
-            status: 'sent'
-        });
-        
-        displayMessage({
-            ...message,
-            status: 'sent'
-        }, activeChat);
-        
-        input.value = '';
-        
-        // Прокрутка вниз
-        document.getElementById('messages').scrollTop = 
-            document.getElementById('messages').scrollHeight;
-    } else {
-        alert('Соединение не установлено');
-    }
-}
-
-// Обработка входящего сообщения
-function handleIncomingMessage(fromUserId, message) {
-    // Сохраняем в истории
-    if (!messages.has(fromUserId)) {
-        messages.set(fromUserId, []);
-    }
-    messages.get(fromUserId).push(message);
-    
-    // Если чат открыт, показываем сообщение
-    if (activeChat === fromUserId) {
-        displayMessage(message, fromUserId);
-        document.getElementById('messages').scrollTop = 
-            document.getElementById('messages').scrollHeight;
-        
-        // Отправляем подтверждение прочтения
-        peerConnection.sendReadReceipt(fromUserId, [message.messageId]);
-    } else {
-        // Увеличиваем счетчик непрочитанных
-        const contact = contacts.get(fromUserId);
-        if (contact) {
-            contact.unread = (contact.unread || 0) + 1;
-            renderContacts();
-        }
-    }
-    
-    // Показываем уведомление
-    const contact = contacts.get(fromUserId);
-    if (contact && activeChat !== fromUserId) {
-        showNotification(`💬 ${contact.username}: ${message.text}`);
-    }
-}
-
-// Показ уведомления
-function showNotification(text) {
-    // Можно реализовать красивое уведомление
-    console.log('🔔', text);
-}
-
-// Индикатор печатания
-document.getElementById('messageInput').addEventListener('input', () => {
-    if (activeChat && peerConnection) {
-        peerConnection.sendTyping(activeChat, true);
-        
-        clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => {
-            peerConnection.sendTyping(activeChat, false);
-        }, 1000);
-    }
-});
-
-// Копирование кода
-function copyUserCode() {
-    const code = document.getElementById('userCodeValue').textContent;
-    navigator.clipboard.writeText(code).then(() => {
-        alert('Код скопирован!');
-    });
-}
-
-// Инициализация после входа
-auth.onAuthStateChanged(async (user) => {
-    if (user) {
-        currentUser = user;
-        
-        // Получаем данные пользователя
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        const userData = userDoc.data();
-        
-        if (userData) {
-            // Создаем P2P соединение
-            peerConnection = new PeerConnection(user.uid, userData.code, userData.username);
-            
-            // Добавляем обработчики
-            peerConnection.onMessage(handleIncomingMessage);
-            peerConnection.onStatusChange((userId, status) => {
-                const contact = contacts.get(userId);
-                if (contact) {
-                    contact.status = status;
-                    renderContacts();
-                    
-                    if (activeChat === userId) {
-                        document.getElementById('messageInput').disabled = status !== 'connected';
-                        document.getElementById('sendBtn').disabled = status !== 'connected';
-                        
-                        const statusDot = document.getElementById('contactStatus');
-                        statusDot.className = `contact-status ${status === 'connected' ? 'online' : 'offline'}`;
-                    }
-                }
-            });
-            
-            // Сохраняем ссылку на сигнальный сервер
-            window.firebaseSignal = signalServer;
-            
-            // Начинаем слушать предложения
-            await signalServer.listenForOffers();
-            
-            // Показываем код пользователя
-            document.getElementById('userCodeValue').textContent = userData.code;
-            
-            showChat();
-        }
-    } else {
-        showAuth();
-    }
-});
-
-// Выход
-function logout() {
-    if (peerConnection) {
-        peerConnection.closeAllConnections();
-    }
-    auth.signOut();
-}
-
-// Показать окно чата
-function showChat() {
-    document.getElementById('auth-container').style.display = 'none';
-    document.getElementById('chat-container').style.display = 'flex';
-}
-
-// Показать окно авторизации
-function showAuth() {
-    document.getElementById('auth-container').style.display = 'block';
-    document.getElementById('chat-container').style.display = 'none';
-}
-
-// Защита от XSS
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-            }
+        let errorMessage = 'Ошибка регистрации: ';
+        switch(error.code) {
+            case 'auth/email-already-in-use':
+                errorMessage += 'Этот email уже используется';
+                break;
+            case 'auth/invalid-email':
+                errorMessage += 'Неверный формат email';
+                break;
+            case 'auth/weak-password':
+                errorMessage += 'Пароль должен быть не менее 6 символов';
+                break;
+          
