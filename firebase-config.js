@@ -12,3 +12,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
+
+// Разрешаем использование localhost для разработки
+auth.useDeviceLanguage();
