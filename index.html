@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flux Messenger</title>
+    <title>Flux P2P Messenger</title>
     <link rel="stylesheet" href="style.css">
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -14,39 +14,69 @@
     <div class="container" id="auth-container">
         <div class="auth-box">
             <h1 class="logo">⚡ Flux</h1>
+            <h3 class="subtitle">P2P Messenger</h3>
             <div class="auth-form">
+                <input type="text" id="username" placeholder="Ваше имя" class="auth-input">
                 <input type="email" id="email" placeholder="Email" class="auth-input">
                 <input type="password" id="password" placeholder="Пароль" class="auth-input">
-                <button onclick="login()" class="auth-btn">Войти</button>
-                <button onclick="register()" class="auth-btn secondary">Регистрация</button>
+                <button onclick="register()" class="auth-btn">Создать код и войти</button>
+                <div class="auth-divider">или</div>
+                <input type="text" id="loginCode" placeholder="Введите ваш 12-значный код" class="auth-input" maxlength="12">
+                <button onclick="loginWithCode()" class="auth-btn secondary">Войти по коду</button>
             </div>
         </div>
     </div>
 
     <div class="container" id="chat-container" style="display: none;">
         <div class="chat-header">
-            <h2 class="logo-small">⚡ Flux</h2>
+            <div class="header-left">
+                <h2 class="logo-small">⚡ Flux</h2>
+                <div class="user-code" id="userCodeDisplay" onclick="copyUserCode()">
+                    <span id="userCodeValue"></span>
+                    <span class="copy-hint">📋</span>
+                </div>
+            </div>
             <button onclick="logout()" class="logout-btn">Выйти</button>
         </div>
         
         <div class="chat-main">
-            <div class="users-sidebar">
-                <h3>Участники</h3>
-                <div id="users-list"></div>
+            <div class="sidebar">
+                <div class="search-section">
+                    <h3>🔍 Найти собеседника</h3>
+                    <div class="search-box">
+                        <input type="text" id="searchCode" placeholder="Введите 12-значный код" maxlength="12">
+                        <button onclick="findUser()" class="search-btn">Найти</button>
+                    </div>
+                    <div id="searchResult" class="search-result"></div>
+                </div>
+                
+                <div class="contacts-section">
+                    <h3>💬 Контакты</h3>
+                    <div id="contacts-list" class="contacts-list"></div>
+                </div>
             </div>
             
-            <div class="chat-area">
+            <div class="chat-area" id="chatArea" style="display: none;">
+                <div class="chat-header-info" id="chatHeader">
+                    <div class="contact-info">
+                        <span class="contact-status" id="contactStatus"></span>
+                        <span id="contactName"></span>
+                        <span class="contact-code" id="contactCode"></span>
+                    </div>
+                </div>
+                
                 <div id="messages" class="messages"></div>
                 
                 <div class="message-input-area">
-                    <textarea id="messageInput" placeholder="Написать сообщение..." rows="2"></textarea>
-                    <button onclick="sendMessage()" class="send-btn">➤</button>
+                    <textarea id="messageInput" placeholder="Написать сообщение..." rows="2" disabled></textarea>
+                    <button onclick="sendMessage()" class="send-btn" id="sendBtn" disabled>➤</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="firebase-config.js"></script>
+    <script src="peer-connection.js"></script>
     <script src="app.js"></script>
 </body>
-  </html>
+</html>
