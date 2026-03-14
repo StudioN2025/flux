@@ -1,12 +1,13 @@
 // Конфигурация Firebase для проекта flux-899a2
 const firebaseConfig = {
-    apiKey: "AIzaSyCLLbeXu-wCpXtnjBh81AZtwl_Trj8B1hQ",
-    authDomain: "flux-899a2.firebaseapp.com",
-    projectId: "flux-899a2",
-    storageBucket: "flux-899a2.firebasestorage.app",
-    messagingSenderId: "312898574184",
-    appId: "1:312898574184:web:94688717e6b29deaa868dd"
+  apiKey: "AIzaSyBMHBR2bLJYCq16gK-e7QaxN0ummuN_ZIo",
+  authDomain: "flux-messenger-bbf58.firebaseapp.com",
+  projectId: "flux-messenger-bbf58",
+  storageBucket: "flux-messenger-bbf58.firebasestorage.app",
+  messagingSenderId: "143785700355",
+  appId: "1:143785700355:web:47283406a08c5a09e87236"
 };
+
 
 // Инициализация Firebase
 firebase.initializeApp(firebaseConfig);
