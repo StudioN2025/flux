@@ -1,38 +1,1005 @@
+/* ===== ОСНОВНЫЕ СТИЛИ ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+:root {
+    --primary-color: #667eea;
+    --primary-dark: #5a67d8;
+    --secondary-color: #764ba2;
+    --success-color: #4caf50;
+    --danger-color: #ff6b6b;
+    --warning-color: #ffd700;
+    --text-dark: #333;
+    --text-light: #666;
+    --text-muted: #999;
+    --bg-light: #f7f7f7;
+    --bg-white: #ffffff;
+    --border-color: #e0e0e0;
+    --shadow-sm: 0 2px 5px rgba(0,0,0,0.1);
+    --shadow-md: 0 5px 15px rgba(0,0,0,0.1);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.3);
+    --border-radius-sm: 8px;
+    --border-radius-md: 10px;
+    --border-radius-lg: 20px;
+    --transition: all 0.3s ease;
+}
+
+body {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    min-height: 100vh;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    overflow: hidden;
+}
+
+.container {
+    width: 100%;
+    max-width: 1400px;
+    height: 95vh;
+    background: var(--bg-white);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* ===== СТИЛИ АВТОРИЗАЦИИ ===== */
+#auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+}
+
+.auth-box {
+    max-width: 450px;
+    width: 90%;
+    margin: 0 auto;
+    padding: 40px 30px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(10px);
+    animation: slideUp 0.5s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.logo {
+    font-size: 64px;
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.subtitle {
+    color: var(--text-light);
+    font-size: 16px;
+    margin-bottom: 30px;
+    font-weight: 300;
+    letter-spacing: 1px;
+}
+
 /* Стили для вкладок */
 .auth-tabs {
     display: flex;
     gap: 10px;
-    margin-bottom: 20px;
+    margin-bottom: 25px;
     background: #f0f0f0;
     padding: 5px;
-    border-radius: 10px;
+    border-radius: var(--border-radius-md);
 }
 
 .tab-btn {
     flex: 1;
-    padding: 10px;
+    padding: 12px;
     border: none;
     background: transparent;
-    border-radius: 8px;
+    border-radius: var(--border-radius-sm);
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
-    color: #666;
+    transition: var(--transition);
+    color: var(--text-light);
 }
 
 .tab-btn.active {
     background: white;
-    color: #667eea;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
 }
 
+.tab-btn:hover:not(.active) {
+    background: rgba(255,255,255,0.5);
+}
+
+/* Формы авторизации */
 .auth-form {
     display: none;
+    flex-direction: column;
+    gap: 15px;
 }
 
 .auth-form.active {
     display: flex;
+}
+
+.auth-input {
+    padding: 15px 20px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    font-size: 16px;
+    transition: var(--transition);
+    background: var(--bg-white);
+    width: 100%;
+}
+
+.auth-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    transform: translateY(-2px);
+}
+
+.auth-input::placeholder {
+    color: var(--text-muted);
+}
+
+.auth-btn {
+    padding: 15px 20px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius-md);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+}
+
+.auth-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.auth-btn:hover::after {
+    width: 300px;
+    height: 300px;
+}
+
+.auth-btn:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.auth-btn.secondary {
+    background: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+.auth-btn.secondary:hover {
+    background: var(--primary-color);
+    color: white;
+}
+
+.auth-btn.secondary:hover::after {
+    display: none;
+}
+
+.auth-divider {
+    text-align: center;
+    margin: 10px 0;
+    color: var(--text-muted);
+    position: relative;
+    font-size: 14px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 45%;
+    height: 1px;
+    background: var(--border-color);
+}
+
+.auth-divider::before { left: 0; }
+.auth-divider::after { right: 0; }
+
+/* ===== ШАПКА ЧАТА ===== */
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 25px;
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.logo-small {
+    font-size: 28px;
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.logo-small:hover {
+    transform: rotate(10deg);
+}
+
+.user-code {
+    background: var(--bg-white);
+    padding: 8px 15px;
+    border-radius: 30px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 16px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: var(--transition);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.user-code:hover {
+    background: var(--border-color);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.copy-hint {
+    font-size: 14px;
+    opacity: 0.6;
+    transition: var(--transition);
+}
+
+.user-code:hover .copy-hint {
+    opacity: 1;
+}
+
+.logout-btn {
+    padding: 10px 25px;
+    background: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.logout-btn:hover {
+    background: #ff5252;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+/* ===== ОСНОВНОЙ МАКЕТ ЧАТА ===== */
+.chat-main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ===== БОКОВАЯ ПАНЕЛЬ ===== */
+.sidebar {
+    width: 350px;
+    background: var(--bg-light);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    transition: var(--transition);
+}
+
+/* Секция поиска */
+.search-section {
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-white);
+}
+
+.search-section h3 {
+    color: var(--text-dark);
+    font-size: 16px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.search-box {
+    display: flex;
+    gap: 10px;
+}
+
+.search-box input {
+    flex: 1;
+    padding: 12px 15px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    transition: var(--transition);
+}
+
+.search-box input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search-btn {
+    padding: 12px 20px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.search-btn:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+}
+
+/* Результаты поиска */
+.search-result {
+    margin-top: 15px;
+    padding: 15px;
+    background: var(--bg-white);
+    border-radius: var(--border-radius-md);
+    display: none;
+    border: 1px solid var(--border-color);
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.search-result.show {
+    display: block;
+}
+
+.found-user {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+}
+
+.found-user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1;
+}
+
+.found-user-name {
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 16px;
+}
+
+.found-user-code {
+    font-family: monospace;
+    color: var(--text-light);
+    font-size: 12px;
+    background: var(--bg-light);
+    padding: 3px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.connect-btn {
+    padding: 8px 15px;
+    background: var(--success-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.connect-btn:hover {
+    background: #45a049;
+    transform: translateY(-2px);
+}
+
+.not-found {
+    padding: 15px;
+    text-align: center;
+    color: var(--danger-color);
+    background: #fff5f5;
+    border-radius: var(--border-radius-sm);
+}
+
+.already-contact {
+    padding: 8px 15px;
+    background: var(--bg-light);
+    color: var(--success-color);
+    border-radius: var(--border-radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Секция контактов */
+.contacts-section {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.contacts-section h3 {
+    color: var(--text-dark);
+    font-size: 16px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.contacts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.contact-item {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    background: var(--bg-white);
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+    border: 2px solid transparent;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.contact-item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary-color);
+}
+
+.contact-item.active {
+    background: #e3f2fd;
+    border-color: var(--primary-color);
+}
+
+.contact-status {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 12px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.contact-status.online {
+    background: var(--success-color);
+    box-shadow: 0 0 10px var(--success-color);
+    animation: pulse 2s infinite;
+}
+
+.contact-status.online::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: 50%;
+    background: rgba(76, 175, 80, 0.3);
+    animation: ripple 2s infinite;
+}
+
+@keyframes ripple {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(2); opacity: 0; }
+}
+
+.contact-status.offline {
+    background: var(--text-muted);
+}
+
+.contact-status.connecting {
+    background: var(--warning-color);
+    animation: pulse 1s infinite;
+}
+
+.contact-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.contact-name {
+    font-weight: 600;
+    color: var(--text-dark);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.connection-status {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--warning-color);
+    color: var(--text-dark);
+}
+
+.connection-status.connected {
+    background: var(--success-color);
+    color: white;
+}
+
+.contact-code-small {
+    font-size: 11px;
+    color: var(--text-light);
+    font-family: monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.unread-badge {
+    background: var(--primary-color);
+    color: white;
+    border-radius: 50%;
+    min-width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 5px;
+    animation: bounce 1s infinite;
+    flex-shrink: 0;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* ===== ОБЛАСТЬ ЧАТА ===== */
+.chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-white);
+    height: 100%;
+}
+
+.chat-header-info {
+    padding: 15px 25px;
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.contact-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+#contactName {
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 16px;
+}
+
+.contact-code {
+    font-family: monospace;
+    color: var(--text-light);
+    font-size: 12px;
+    background: var(--bg-white);
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+/* Сообщения */
+.messages {
+    flex: 1;
+    padding: 25px;
+    overflow-y: auto;
+    display: flex;
     flex-direction: column;
     gap: 15px;
-} 
+    background: #fafafa;
+    background-image: 
+        radial-gradient(circle at 25% 25%, rgba(102, 126, 234, 0.05) 1px, transparent 1px),
+        radial-gradient(circle at 75% 75%, rgba(118, 75, 162, 0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+}
+
+.message {
+    max-width: 70%;
+    padding: 12px 18px;
+    border-radius: 18px;
+    position: relative;
+    word-wrap: break-word;
+    animation: messagePop 0.3s ease;
+    line-height: 1.4;
+}
+
+@keyframes messagePop {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message.own {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-bottom-right-radius: 4px;
+    box-shadow: -2px 2px 5px rgba(0,0,0,0.1);
+}
+
+.message.other {
+    align-self: flex-start;
+    background: white;
+    color: var(--text-dark);
+    border-bottom-left-radius: 4px;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+}
+
+.message-time {
+    font-size: 10px;
+    margin-top: 5px;
+    text-align: right;
+    opacity: 0.7;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+}
+
+.message.own .message-time {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.message-status {
+    display: inline-block;
+}
+
+.message-status.sent::after {
+    content: '✓';
+}
+
+.message-status.delivered::after {
+    content: '✓✓';
+}
+
+.message-status.read::after {
+    content: '✓✓';
+    color: var(--success-color);
+}
+
+/* Индикатор печатания */
+.typing-indicator {
+    padding: 10px 25px;
+    color: var(--text-light);
+    font-style: italic;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    animation: fadeIn 0.3s ease;
+}
+
+.typing-dots {
+    display: flex;
+    gap: 3px;
+}
+
+.typing-dots span {
+    width: 6px;
+    height: 6px;
+    background: var(--text-light);
+    border-radius: 50%;
+    animation: typingBounce 1.4s infinite;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingBounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-10px); }
+}
+
+/* Область ввода сообщения */
+.message-input-area {
+    display: flex;
+    padding: 20px 25px;
+    background: var(--bg-white);
+    border-top: 1px solid var(--border-color);
+    gap: 15px;
+    align-items: flex-end;
+}
+
+.message-input-area textarea {
+    flex: 1;
+    padding: 12px 18px;
+    border: 2px solid var(--border-color);
+    border-radius: 25px;
+    resize: none;
+    font-size: 15px;
+    transition: var(--transition);
+    max-height: 100px;
+    min-height: 50px;
+    line-height: 1.4;
+}
+
+.message-input-area textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.message-input-area textarea:disabled {
+    background: var(--bg-light);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.send-btn {
+    width: 50px;
+    height: 50px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 20px;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
+}
+
+.send-btn:hover:not(:disabled) {
+    background: var(--primary-dark);
+    transform: translateY(-2px) scale(1.1);
+    box-shadow: var(--shadow-md);
+}
+
+.send-btn:disabled {
+    background: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Кнопки для мобильных */
+.menu-toggle, .back-btn {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 5px;
+    transition: var(--transition);
+    background: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+}
+
+.menu-toggle:hover, .back-btn:hover {
+    transform: scale(1.1);
+    background: var(--primary-color);
+    color: white;
+}
+
+/* ===== УВЕДОМЛЕНИЯ ===== */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 20px;
+    border-radius: var(--border-radius-md);
+    color: white;
+    animation: slideInRight 0.3s ease;
+    z-index: 10000;
+    max-width: 300px;
+    box-shadow: var(--shadow-lg);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.notification.success {
+    background: var(--success-color);
+}
+
+.notification.error {
+    background: var(--danger-color);
+}
+
+.notification.warning {
+    background: var(--warning-color);
+    color: var(--text-dark);
+}
+
+.notification.info {
+    background: var(--primary-color);
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ===== ДИАЛОГИ ПОДТВЕРЖДЕНИЯ ===== */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10001;
+    animation: fadeIn 0.3s ease;
+    padding: 20px;
+}
+
+.confirm-dialog {
+    background: white;
+    padding: 30px;
+    border-radius: var(--border-radius-lg);
+    max-width: 400px;
+    width: 100%;
+    animation: slideUp 0.3s ease;
+    box-shadow: var(--shadow-lg);
+}
+
+.confirm-dialog h3 {
+    margin-bottom: 10px;
+    color: var(--text-dark);
+    font-size: 20px;
+}
+
+.confirm-dialog p {
+    margin-bottom: 25px;
+    color: var(--text-light);
+    line-height: 1.5;
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.dialog-buttons button {
+    padding: 10px 25px;
+    border: none;
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.btn-confirm {
+    background: var(--success-color);
+    color: white;
+}
+
+.btn-confirm:hover {
+    background: #45a049;
+    transform: translateY(-2px);
+}
+
+.btn-cancel {
+    background: var(--danger-color);
+    color: white;
+}
+
+.btn-cancel
