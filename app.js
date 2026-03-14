@@ -1,16 +1,150 @@
+
+
 // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
 let currentUser = null;
-let peerConnection = null;
-let activeChat = null;
 let contacts = new Map();
 let messages = new Map();
-let typingTimeout = null;
-let unreadMessages = new Map();
-let onlineStatusInterval = null;
+let activeChat = null;
 let notificationPermission = false;
+
+// ==================== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ====================
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM полностью загружен');
+    
+    // Принудительно показываем форму авторизации
+    showAuth();
+    
+    // Добавляем стили для уведомлений, если их нет
+    addNotificationStyles();
+    
+    // Добавляем стили для настроек, если их нет
+    addSettingsStyles();
+    
+    // Добавляем обработчики для всех кнопок
+    attachEventListeners();
+});
+
+// ==================== ПРИНУДИТЕЛЬНАЯ ПРИВЯЗКА ОБРАБОТЧИКОВ ====================
+function attachEventListeners() {
+    console.log('Привязка обработчиков событий');
+    
+    // Кнопки авторизации
+    const loginBtn = document.querySelector('#login-form .auth-btn:not(.secondary)');
+    if (loginBtn) {
+        loginBtn.onclick = function(e) {
+            e.preventDefault();
+            login();
+        };
+    }
+    
+    const registerBtn = document.querySelector('#register-form .auth-btn');
+    if (registerBtn) {
+        registerBtn.onclick = function(e) {
+            e.preventDefault();
+            register();
+        };
+    }
+    
+    const loginWithCodeBtn = document.querySelector('#login-form .secondary');
+    if (loginWithCodeBtn) {
+        loginWithCodeBtn.onclick = function(e) {
+            e.preventDefault();
+            loginWithCode();
+        };
+    }
+    
+    // Кнопки вкладок
+    const loginTab = document.getElementById('loginTab');
+    if (loginTab) {
+        loginTab.onclick = function() {
+            switchTab('login');
+        };
+    }
+    
+    const registerTab = document.getElementById('registerTab');
+    if (registerTab) {
+        registerTab.onclick = function() {
+            switchTab('register');
+        };
+    }
+    
+    // Кнопка выхода
+    const logoutBtn = document.querySelector('.logout-btn');
+    if (logoutBtn) {
+        logoutBtn.onclick = function(e) {
+            e.preventDefault();
+            logout();
+        };
+    }
+    
+    // Кнопка поиска
+    const searchBtn = document.querySelector('.search-btn');
+    if (searchBtn) {
+        searchBtn.onclick = function(e) {
+            e.preventDefault();
+            findUser();
+        };
+    }
+    
+    // Кнопка отправки сообщения
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) {
+        sendBtn.onclick = function(e) {
+            e.preventDefault();
+            sendMessage();
+        };
+    }
+    
+    // Кнопка копирования кода
+    const userCodeDisplay = document.getElementById('userCodeDisplay');
+    if (userCodeDisplay) {
+        userCodeDisplay.onclick = function() {
+            copyUserCode();
+        };
+    }
+    
+    // Мобильное меню
+    const menuToggle = document.querySelector('.menu-toggle');
+    if (menuToggle) {
+        menuToggle.onclick = function() {
+            toggleMobileMenu();
+        };
+    }
+    
+    // Кнопка назад
+    const backBtn = document.querySelector('.back-btn');
+    if (backBtn) {
+        backBtn.onclick = function() {
+            goBack();
+        };
+    }
+    
+    // Поле поиска - поиск по Enter
+    const searchInput = document.getElementById('searchCode');
+    if (searchInput) {
+        searchInput.onkeypress = function(e) {
+            if (e.key === 'Enter') {
+                findUser();
+            }
+        };
+    }
+    
+    // Поле ввода сообщения - отправка по Enter
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.onkeypress = function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+    }
+}
 
 // ==================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ====================
 function switchTab(tab) {
+    console.log('Переключение вкладки:', tab);
+    
     const loginTab = document.getElementById('loginTab');
     const registerTab = document.getElementById('registerTab');
     const loginForm = document.getElementById('login-form');
@@ -50,6 +184,8 @@ function isValidEmail(email) {
 
 // Показать уведомление
 function showNotification(message, type = 'info', duration = 3000) {
+    console.log('Уведомление:', message, type);
+    
     // Удаляем старые уведомления
     const oldNotifications = document.querySelectorAll('.notification');
     oldNotifications.forEach(n => n.remove());
@@ -58,30 +194,30 @@ function showNotification(message, type = 'info', duration = 3000) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 10px;
+        color: white;
+        animation: slideIn 0.3s ease;
+        z-index: 10000;
+        max-width: 300px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        font-size: 14px;
+        line-height: 1.5;
+        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#ff6b6b' : type === 'warning' ? '#ffd700' : '#667eea'};
+        ${type === 'warning' ? 'color: #333;' : ''}
+    `;
     
-    // Добавляем стили, если их нет
-    if (!document.querySelector('#notification-styles')) {
+    document.body.appendChild(notification);
+    
+    // Добавляем анимацию, если её нет
+    if (!document.querySelector('#notification-keyframes')) {
         const style = document.createElement('style');
-        style.id = 'notification-styles';
+        style.id = 'notification-keyframes';
         style.textContent = `
-            .notification {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 15px 20px;
-                border-radius: 10px;
-                color: white;
-                animation: slideIn 0.3s ease;
-                z-index: 10000;
-                max-width: 300px;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-                font-size: 14px;
-                line-height: 1.5;
-            }
-            .notification.success { background: #4caf50; }
-            .notification.error { background: #ff6b6b; }
-            .notification.info { background: #667eea; }
-            .notification.warning { background: #ffd700; color: #333; }
             @keyframes slideIn {
                 from { transform: translateX(100%); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
@@ -89,8 +225,6 @@ function showNotification(message, type = 'info', duration = 3000) {
         `;
         document.head.appendChild(style);
     }
-    
-    document.body.appendChild(notification);
     
     // Удаляем через указанное время
     setTimeout(() => {
@@ -106,9 +240,6 @@ async function register() {
     const email = document.getElementById('register-email')?.value.trim();
     const password = document.getElementById('register-password')?.value;
     
-    console.log('Получены данные:', { username, email, password: '***' });
-    
-    // Валидация
     if (!username || !email || !password) {
         showNotification('Пожалуйста, заполните все поля', 'error');
         return;
@@ -134,11 +265,9 @@ async function register() {
         
         // Создаем пользователя в Firebase Auth
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        console.log('Пользователь создан в Auth:', userCredential.user.uid);
         
         // Генерируем уникальный код
         const userCode = generateUserCode();
-        console.log('Сгенерирован код:', userCode);
         
         // Создаем профиль в Firestore
         await db.collection('users').doc(userCredential.user.uid).set({
@@ -149,8 +278,6 @@ async function register() {
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             lastSeen: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
-        console.log('Профиль создан в Firestore');
         
         showNotification(`✅ Регистрация успешна!\nВаш код: ${userCode}`, 'success', 5000);
         
@@ -202,11 +329,13 @@ async function login() {
         await auth.signInWithEmailAndPassword(email, password);
         
         console.log('Вход выполнен успешно');
-        showNotification('✅ Вход выполнен!', 'success');
         
         // Очищаем поля
         if (document.getElementById('login-email')) document.getElementById('login-email').value = '';
         if (document.getElementById('login-password')) document.getElementById('login-password').value = '';
+        
+        // Покажем уведомление после успешного входа
+        // Сам переход произойдет в onAuthStateChanged
         
     } catch (error) {
         console.error('Ошибка входа:', error);
@@ -283,6 +412,8 @@ async function loginWithCode() {
 
 // ==================== ВЫХОД ====================
 async function logout() {
+    console.log('Выход');
+    
     try {
         if (currentUser) {
             showNotification('Выход...', 'info');
@@ -312,217 +443,133 @@ async function logout() {
 
 // ==================== ПОКАЗ/СКРЫТИЕ КОНТЕЙНЕРОВ ====================
 function showChat() {
+    console.log('Показываем чат');
+    
     const authContainer = document.getElementById('auth-container');
     const chatContainer = document.getElementById('chat-container');
     
     if (authContainer && chatContainer) {
         authContainer.style.display = 'none';
         chatContainer.style.display = 'flex';
-        console.log('Показан чат');
+        
+        // Перепривязываем обработчики для чата
+        setTimeout(() => {
+            attachChatEventListeners();
+        }, 100);
     }
 }
 
 function showAuth() {
+    console.log('Показываем авторизацию');
+    
     const authContainer = document.getElementById('auth-container');
     const chatContainer = document.getElementById('chat-container');
     
     if (authContainer && chatContainer) {
         authContainer.style.display = 'flex';
         chatContainer.style.display = 'none';
-        console.log('Показана авторизация');
+        
+        // Перепривязываем обработчики для авторизации
+        setTimeout(() => {
+            attachEventListeners();
+        }, 100);
     }
+}
+
+// Привязка обработчиков для чата
+function attachChatEventListeners() {
+    console.log('Привязка обработчиков чата');
+    
+    // Кнопка выхода
+    const logoutBtn = document.querySelector('.logout-btn');
+    if (logoutBtn) {
+        logoutBtn.onclick = function(e) {
+            e.preventDefault();
+            logout();
+        };
+    }
+    
+    // Кнопка поиска
+    const searchBtn = document.querySelector('.search-btn');
+    if (searchBtn) {
+        searchBtn.onclick = function(e) {
+            e.preventDefault();
+            findUser();
+        };
+    }
+    
+    // Кнопка отправки сообщения
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) {
+        sendBtn.onclick = function(e) {
+            e.preventDefault();
+            sendMessage();
+        };
+    }
+    
+    // Кнопка копирования кода
+    const userCodeDisplay = document.getElementById('userCodeDisplay');
+    if (userCodeDisplay) {
+        userCodeDisplay.onclick = function() {
+            copyUserCode();
+        };
+    }
+    
+    // Мобильное меню
+    const menuToggle = document.querySelector('.menu-toggle');
+    if (menuToggle) {
+        menuToggle.onclick = function() {
+            toggleMobileMenu();
+        };
+    }
+    
+    // Кнопка назад
+    const backBtn = document.querySelector('.back-btn');
+    if (backBtn) {
+        backBtn.onclick = function() {
+            goBack();
+        };
+    }
+    
+    // Поле поиска
+    const searchInput = document.getElementById('searchCode');
+    if (searchInput) {
+        searchInput.onkeypress = function(e) {
+            if (e.key === 'Enter') {
+                findUser();
+            }
+        };
+    }
+    
+    // Поле ввода сообщения
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.onkeypress = function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+    }
+    
+    // Добавляем кнопку настроек
+    addSettingsButton();
 }
 
 // ==================== МОБИЛЬНЫЕ ФУНКЦИИ ====================
 function toggleMobileMenu() {
-    document.querySelector('.sidebar')?.classList.toggle('active');
+    console.log('Toggle mobile menu');
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('active');
+    }
 }
 
 function goBack() {
-    document.querySelector('.chat-area')?.classList.remove('active');
-}
-
-// ==================== ФУНКЦИИ НАСТРОЕК ПРОФИЛЯ ====================
-
-// Показать модальное окно настроек
-function showProfileSettings() {
-    // Создаем затемнение
-    const overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
-    overlay.id = 'settings-overlay';
-    
-    // Получаем текущие данные пользователя
-    const currentUsername = document.querySelector('.user-code')?.getAttribute('data-username') || 'Пользователь';
-    
-    // Создаем модальное окно
-    const dialog = document.createElement('div');
-    dialog.className = 'confirm-dialog settings-dialog';
-    dialog.innerHTML = `
-        <h3>⚙️ Настройки профиля</h3>
-        <div class="settings-form">
-            <div class="settings-field">
-                <label>Ваше имя</label>
-                <input type="text" id="settings-username" value="${escapeHtml(currentUsername)}" placeholder="Введите имя" class="settings-input">
-            </div>
-            <div class="settings-field">
-                <label>Ваш код</label>
-                <div class="settings-code-display">
-                    <span id="settings-code">${document.getElementById('userCodeValue')?.textContent || ''}</span>
-                    <button onclick="copySettingsCode()" class="settings-copy-btn">📋</button>
-                </div>
-            </div>
-        </div>
-        <div class="dialog-buttons">
-            <button class="btn-cancel" onclick="closeSettings()">Отмена</button>
-            <button class="btn-confirm" onclick="saveProfileSettings()">Сохранить</button>
-        </div>
-    `;
-    
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-    
-    // Добавляем стили для настроек
-    if (!document.querySelector('#settings-styles')) {
-        const style = document.createElement('style');
-        style.id = 'settings-styles';
-        style.textContent = `
-            .settings-dialog {
-                max-width: 400px;
-                width: 90%;
-            }
-            .settings-form {
-                margin: 20px 0;
-            }
-            .settings-field {
-                margin-bottom: 20px;
-                text-align: left;
-            }
-            .settings-field label {
-                display: block;
-                margin-bottom: 8px;
-                color: var(--text-dark);
-                font-weight: 500;
-                font-size: 14px;
-            }
-            .settings-input {
-                width: 100%;
-                padding: 12px 15px;
-                border: 2px solid var(--border-color);
-                border-radius: 8px;
-                font-size: 14px;
-                transition: all 0.3s ease;
-                background: var(--bg-white);
-                color: var(--text-dark);
-            }
-            .settings-input:focus {
-                outline: none;
-                border-color: var(--primary-color);
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-            .settings-code-display {
-                display: flex;
-                gap: 10px;
-                align-items: center;
-                background: var(--bg-light);
-                padding: 10px 15px;
-                border-radius: 8px;
-                border: 1px solid var(--border-color);
-            }
-            .settings-code-display span {
-                flex: 1;
-                font-family: monospace;
-                font-size: 18px;
-                letter-spacing: 2px;
-                color: var(--primary-color);
-            }
-            .settings-copy-btn {
-                background: var(--primary-color);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 12px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                font-size: 14px;
-            }
-            .settings-copy-btn:hover {
-                background: var(--primary-dark);
-                transform: translateY(-2px);
-            }
-            @media (prefers-color-scheme: dark) {
-                .settings-code-display {
-                    background: #2d2d2d;
-                }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-}
-
-// Закрыть настройки
-function closeSettings() {
-    const overlay = document.getElementById('settings-overlay');
-    if (overlay) {
-        overlay.remove();
-    }
-}
-
-// Сохранить настройки профиля
-async function saveProfileSettings() {
-    const newUsername = document.getElementById('settings-username')?.value.trim();
-    
-    if (!newUsername) {
-        showNotification('Введите имя', 'error');
-        return;
-    }
-    
-    if (newUsername.length < 2) {
-        showNotification('Имя должно быть не менее 2 символов', 'error');
-        return;
-    }
-    
-    try {
-        showNotification('Сохранение...', 'info');
-        
-        // Обновляем в Firestore
-        await db.collection('users').doc(currentUser.uid).update({
-            username: newUsername
-        });
-        
-        // Обновляем в локальных данных
-        if (currentUser) {
-            // Обновляем в контактах если есть
-            const contact = contacts.get(currentUser.uid);
-            if (contact) {
-                contact.username = newUsername;
-            }
-        }
-        
-        // Обновляем отображение в шапке
-        const userCodeDisplay = document.querySelector('.user-code');
-        if (userCodeDisplay) {
-            userCodeDisplay.setAttribute('data-username', newUsername);
-            // Можно добавить отображение имени где-то еще
-        }
-        
-        showNotification('✅ Имя успешно изменено', 'success');
-        closeSettings();
-        
-    } catch (error) {
-        console.error('Ошибка сохранения:', error);
-        showNotification('Ошибка при сохранении', 'error');
-    }
-}
-
-// Копировать код в настройках
-function copySettingsCode() {
-    const code = document.getElementById('settings-code')?.textContent;
-    if (code) {
-        navigator.clipboard.writeText(code).then(() => {
-            showNotification('📋 Код скопирован!', 'success');
-        }).catch(() => {
-            showNotification('❌ Ошибка копирования', 'error');
-        });
+    console.log('Go back');
+    const chatArea = document.querySelector('.chat-area');
+    if (chatArea) {
+        chatArea.classList.remove('active');
     }
 }
 
@@ -530,6 +577,8 @@ function copySettingsCode() {
 
 // Поиск пользователя по коду
 async function findUser() {
+    console.log('Поиск пользователя');
+    
     const code = document.getElementById('searchCode')?.value.trim().toUpperCase();
     
     if (!code || code.length !== 12) {
@@ -578,8 +627,22 @@ async function findUser() {
                         <span class="contact-status ${userData.online ? 'online' : 'offline'}"></span>
                     </div>
                     ${!isInContacts ? 
-                        `<button onclick="connectToUser('${userId}', '${escapeHtml(userData.username || 'Пользователь')}', '${userData.code}')" class="connect-btn">
+                        `<button class="connect-btn" onclick="connectToUser('${userId}', '${escapeHtml(userData.username || 'Пользователь')}', '${userData.code}')">
                             Подключиться
                         </button>` : 
                         '<span class="already-contact">✅ В контактах</span>'
- 
+                    }
+                </div>
+            `;
+            searchResult.classList.add('show');
+        }
+        
+    } catch (error) {
+        console.error('Ошибка поиска:', error);
+        showNotification('Ошибка: ' + error.message, 'error');
+    }
+}
+
+// Подключение к пользователю
+function connectToUser(userId, username, userCode) {
+    
