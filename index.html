@@ -2,69 +2,511 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Flux P2P Messenger</title>
-    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flux Messenger</title>
+    
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        /* Auth styles */
+        #auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+        
+        .auth-box {
+            width: 400px;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 64px;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        
+        .auth-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: #f0f0f0;
+            padding: 5px;
+            border-radius: 10px;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .auth-form {
+            display: none;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .auth-form.active {
+            display: flex;
+        }
+        
+        .auth-input {
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            width: 100%;
+        }
+        
+        .auth-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .auth-btn {
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
+        }
+        
+        .auth-btn:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        
+        .auth-btn.secondary {
+            background: transparent;
+            border: 2px solid #667eea;
+            color: #667eea;
+        }
+        
+        .auth-divider {
+            margin: 10px 0;
+            color: #999;
+            position: relative;
+        }
+        
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 45%;
+            height: 1px;
+            background: #e0e0e0;
+        }
+        
+        .auth-divider::before { left: 0; }
+        .auth-divider::after { right: 0; }
+        
+        /* Chat styles */
+        #chat-container {
+            display: none;
+            height: 100%;
+            flex-direction: column;
+        }
+        
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: #f7f7f7;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .logo-small {
+            font-size: 24px;
+            color: #667eea;
+        }
+        
+        .user-code {
+            background: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-family: monospace;
+            font-size: 16px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .copy-hint {
+            font-size: 14px;
+        }
+        
+        .logout-btn {
+            padding: 10px 25px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .chat-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: #f7f7f7;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .search-section {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .search-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .search-box {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-box input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-family: monospace;
+        }
+        
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .search-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .search-result {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .search-result.show {
+            display: block;
+        }
+        
+        .found-user {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .found-user-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .found-user-code {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+        }
+        
+        .connect-btn {
+            padding: 5px 15px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        .contacts-section {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .contacts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        
+        .contact-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .contact-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        
+        .contact-status.online {
+            background: #4caf50;
+        }
+        
+        .contact-status.offline {
+            background: #999;
+        }
+        
+        .contact-name {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        
+        .contact-code {
+            font-size: 11px;
+            color: #666;
+        }
+        
+        .chat-area {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+        }
+        
+        .chat-header-info {
+            padding: 15px 20px;
+            background: #f7f7f7;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .contact-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #fafafa;
+        }
+        
+        .message {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 15px;
+            position: relative;
+        }
+        
+        .message.own {
+            align-self: flex-end;
+            background: #667eea;
+            color: white;
+        }
+        
+        .message.other {
+            align-self: flex-start;
+            background: white;
+            color: #333;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .message-time {
+            font-size: 10px;
+            margin-top: 5px;
+            text-align: right;
+            opacity: 0.7;
+        }
+        
+        .message-input-area {
+            display: flex;
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            gap: 10px;
+        }
+        
+        .message-input-area textarea {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            resize: none;
+            font-size: 14px;
+        }
+        
+        .message-input-area textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .send-btn {
+            width: 50px;
+            height: 50px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 20px;
+            cursor: pointer;
+            align-self: flex-end;
+        }
+        
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 10px;
+            color: white;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .notification.success { background: #4caf50; }
+        .notification.error { background: #ff6b6b; }
+        .notification.info { background: #667eea; }
+    </style>
 </head>
 <body>
-    <!-- КОНТЕЙНЕР АВТОРИЗАЦИИ -->
     <div class="container" id="auth-container">
         <div class="auth-box">
             <h1 class="logo">⚡ Flux</h1>
-            <h3 class="subtitle">P2P Messenger</h3>
             
-            <!-- ВКЛАДКИ -->
             <div class="auth-tabs">
-                <button class="tab-btn active" onclick="switchTab('login')" id="loginTab">Вход</button>
-                <button class="tab-btn" onclick="switchTab('register')" id="registerTab">Регистрация</button>
+                <button class="tab-btn active" id="loginTab">Вход</button>
+                <button class="tab-btn" id="registerTab">Регистрация</button>
             </div>
             
-            <!-- ФОРМА ВХОДА -->
             <div id="login-form" class="auth-form active">
                 <input type="email" id="login-email" placeholder="Email" class="auth-input">
                 <input type="password" id="login-password" placeholder="Пароль" class="auth-input">
-                <button onclick="login()" class="auth-btn">Войти</button>
+                <button class="auth-btn" id="loginBtn">Войти</button>
                 <div class="auth-divider">или</div>
-                <input type="text" id="login-code" placeholder="Войти по 12-значному коду" class="auth-input" maxlength="12">
-                <button onclick="loginWithCode()" class="auth-btn secondary">Войти по коду</button>
+                <input type="text" id="login-code" placeholder="Введите 12-значный код" class="auth-input" maxlength="12">
+                <button class="auth-btn secondary" id="loginCodeBtn">Войти по коду</button>
             </div>
             
-            <!-- ФОРМА РЕГИСТРАЦИИ -->
             <div id="register-form" class="auth-form">
                 <input type="text" id="register-username" placeholder="Ваше имя" class="auth-input">
                 <input type="email" id="register-email" placeholder="Email" class="auth-input">
                 <input type="password" id="register-password" placeholder="Пароль (мин. 6 символов)" class="auth-input">
-                <button onclick="register()" class="auth-btn">Зарегистрироваться</button>
+                <button class="auth-btn" id="registerBtn">Зарегистрироваться</button>
             </div>
         </div>
     </div>
 
-    <!-- КОНТЕЙНЕР ЧАТА -->
-    <div class="container" id="chat-container" style="display: none;">
+    <div class="container" id="chat-container">
         <div class="chat-header">
             <div class="header-left">
-                <button class="menu-toggle" onclick="toggleMobileMenu()">☰</button>
                 <h2 class="logo-small">⚡ Flux</h2>
-                <div class="user-code" id="userCodeDisplay" onclick="copyUserCode()">
+                <div class="user-code" id="userCodeDisplay">
                     <span id="userCodeValue"></span>
                     <span class="copy-hint">📋</span>
                 </div>
             </div>
-            <button onclick="logout()" class="logout-btn">Выйти</button>
+            <button class="logout-btn" id="logoutBtn">Выйти</button>
         </div>
         
         <div class="chat-main">
-            <!-- БОКОВАЯ ПАНЕЛЬ -->
             <div class="sidebar">
                 <div class="search-section">
                     <h3>🔍 Найти собеседника</h3>
                     <div class="search-box">
                         <input type="text" id="searchCode" placeholder="Введите 12-значный код" maxlength="12">
-                        <button onclick="findUser()" class="search-btn">Найти</button>
+                        <button class="search-btn" id="searchBtn">Найти</button>
                     </div>
                     <div id="searchResult" class="search-result"></div>
                 </div>
@@ -75,10 +517,8 @@
                 </div>
             </div>
             
-            <!-- ОБЛАСТЬ ЧАТА -->
-            <div class="chat-area" id="chatArea" style="display: none;">
+            <div class="chat-area" id="chatArea">
                 <div class="chat-header-info">
-                    <button class="back-btn" onclick="goBack()">←</button>
                     <div class="contact-info">
                         <span class="contact-status" id="contactStatus"></span>
                         <span id="contactName"></span>
@@ -90,7 +530,7 @@
                 
                 <div class="message-input-area">
                     <textarea id="messageInput" placeholder="Написать сообщение..." rows="2" disabled></textarea>
-                    <button onclick="sendMessage()" class="send-btn" id="sendBtn" disabled>➤</button>
+                    <button class="send-btn" id="sendBtn" disabled>➤</button>
                 </div>
             </div>
         </div>
