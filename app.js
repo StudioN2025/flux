@@ -10,6 +10,9 @@ let activeChat = null;
 window.addEventListener('load', function() {
     console.log('Страница загружена');
     
+    // Проверяем подключение к Firestore
+    checkFirestoreConnection();
+    
     // Показываем форму авторизации
     document.getElementById('auth-container').style.display = 'flex';
     document.getElementById('chat-container').style.display = 'none';
@@ -17,6 +20,24 @@ window.addEventListener('load', function() {
     // Привязываем обработчики
     bindButtons();
 });
+
+// ==================== ПРОВЕРКА FIRESTORE ====================
+async function checkFirestoreConnection() {
+    try {
+        console.log('Проверка Firestore...');
+        const testDoc = await db.collection('test').doc('test').get();
+        console.log('✅ Firestore подключена!');
+    } catch (error) {
+        console.error('❌ Firestore НЕ подключена:', error);
+        console.log('⚠️ Нужно создать базу данных по ссылке:');
+        console.log('https://console.cloud.google.com/datastore/setup?project=flux-messenger-bbf58');
+        
+        // Показываем сообщение пользователю
+        setTimeout(() => {
+            showMessage('⚠️ Нужно создать базу данных Firestore в консоли Firebase', 'warning', 8000);
+        }, 1000);
+    }
+}
 
 // ==================== ПРИВЯЗКА КНОПОК ====================
 function bindButtons() {
@@ -93,8 +114,8 @@ function bindButtons() {
 }
 
 // ==================== УВЕДОМЛЕНИЯ ====================
-function showMessage(text, type) {
-    console.log(text);
+function showMessage(text, type, duration = 4000) {
+    console.log('[Уведомление]', text);
     
     // Удаляем старые
     document.querySelectorAll('.notification').forEach(el => el.remove());
@@ -103,20 +124,27 @@ function showMessage(text, type) {
     const notification = document.createElement('div');
     notification.className = 'notification';
     notification.textContent = text;
+    
+    let bgColor = '#667eea';
+    if (type === 'success') bgColor = '#4caf50';
+    if (type === 'error') bgColor = '#ff6b6b';
+    if (type === 'warning') bgColor = '#ffd700';
+    
     notification.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
         padding: 15px 20px;
         border-radius: 10px;
-        color: white;
+        color: ${type === 'warning' ? '#333' : 'white'};
         z-index: 9999;
-        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#ff6b6b' : '#667eea'};
+        background: ${bgColor};
         max-width: 300px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
     `;
     
     document.body.appendChild(notification);
-    setTimeout(() => notification.remove(), 4000);
+    setTimeout(() => notification.remove(), duration);
 }
 
 // ==================== ГЕНЕРАЦИЯ КОДА ====================
@@ -221,8 +249,6 @@ async function loginUser() {
             msg += 'Неверный email или пароль';
         } else if (error.code === 'auth/user-not-found') {
             msg += 'Пользователь не найден';
-        } else if (error.code === 'auth/wrong-password') {
-            msg += 'Неверный пароль';
         } else {
             msg += error.message;
         }
@@ -261,7 +287,7 @@ async function loginWithCode() {
         
     } catch (error) {
         console.error(error);
-        showMessage('Ошибка поиска', 'error');
+        showMessage('❌ Ошибка поиска: ' + error.message, 'error');
     }
 }
 
@@ -335,7 +361,7 @@ async function searchUser() {
         
     } catch (error) {
         console.error(error);
-        showMessage('❌ Ошибка поиска', 'error');
+        showMessage('❌ Ошибка поиска: ' + error.message, 'error');
     }
 }
 
@@ -516,7 +542,7 @@ auth.onAuthStateChanged(async (user) => {
             if (doc.exists) {
                 const data = doc.data();
                 document.getElementById('userCodeValue').textContent = data.code || '---';
-                console.log('Код пользователя:', data.code);
+                console.log('✅ Код пользователя:', data.code);
             } else {
                 // Если нет профиля, создаем
                 const code = generateCode();
@@ -528,6 +554,7 @@ auth.onAuthStateChanged(async (user) => {
                     createdAt: new Date().toISOString()
                 });
                 document.getElementById('userCodeValue').textContent = code;
+                console.log('✅ Создан новый профиль, код:', code);
             }
             
             // Обновляем статус
@@ -543,9 +570,11 @@ auth.onAuthStateChanged(async (user) => {
             document.getElementById('auth-container').style.display = 'none';
             document.getElementById('chat-container').style.display = 'flex';
             
+            console.log('✅ Чат открыт');
+            
         } catch (error) {
             console.error('Ошибка:', error);
-            showMessage('Ошибка загрузки профиля', 'error');
+            showMessage('⚠️ Ошибка загрузки профиля: ' + error.message, 'error');
         }
         
     } else {
