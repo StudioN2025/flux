@@ -1,6 +1,4 @@
-// ==================== ПРОСТАЯ РАБОЧАЯ ВЕРСИЯ ====================
-
-// Глобальные переменные
+// ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
 let currentUser = null;
 let contacts = [];
 let messages = {};
@@ -29,10 +27,6 @@ async function checkFirestoreConnection() {
         console.log('✅ Firestore подключена!');
     } catch (error) {
         console.error('❌ Firestore НЕ подключена:', error);
-        console.log('⚠️ Нужно создать базу данных по ссылке:');
-        console.log('https://console.cloud.google.com/datastore/setup?project=flux-messenger-bbf58');
-        
-        // Показываем сообщение пользователю
         setTimeout(() => {
             showMessage('⚠️ Нужно создать базу данных Firestore в консоли Firebase', 'warning', 8000);
         }, 1000);
@@ -365,31 +359,137 @@ async function searchUser() {
     }
 }
 
-// ==================== ДОБАВЛЕНИЕ КОНТАКТА ====================
-function addContact(id, name, code) {
-    console.log('Добавляем контакт:', name);
+// ==================== ДОБАВЛЕНИЕ КОНТАКТА (С АВТООТВЕТОМ) ====================
+async function addContact(userId, username, code) {
+    console.log('Добавляем контакт:', username);
     
-    const exists = contacts.some(c => c.id === id);
+    // Проверяем, есть ли уже
+    const exists = contacts.some(c => c.id === userId);
     
     if (!exists) {
+        // Добавляем контакт
         contacts.push({
-            id: id,
-            name: name,
+            id: userId,
+            name: username,
             code: code,
             status: 'offline'
         });
         
         renderContacts();
-        showMessage(`✅ ${name} добавлен в контакты`, 'success');
+        showMessage(`✅ ${username} добавлен в контакты`, 'success');
         
         // Сохраняем в localStorage
         localStorage.setItem('flux_contacts', JSON.stringify(contacts));
+        
+        // Сохраняем в Firestore
+        await saveContactsToFirestore();
+        
+        // 🔥 АВТОМАТИЧЕСКИ ДОБАВЛЯЕМ СЕБЯ В КОНТАКТЫ ДРУГОГО ПОЛЬЗОВАТЕЛЯ
+        await addMeToTheirContacts(userId);
+        
     } else {
-        showMessage('⚠️ Контакт уже есть', 'info');
+        showMessage(`⚠️ ${username} уже есть в контактах`, 'info');
     }
     
     document.getElementById('searchCode').value = '';
     document.getElementById('searchResult').style.display = 'none';
+}
+
+// ==================== ДОБАВЛЕНИЕ СЕБЯ В КОНТАКТЫ ДРУГОГО ПОЛЬЗОВАТЕЛЯ ====================
+async function addMeToTheirContacts(otherUserId) {
+    if (!currentUser) return;
+    
+    try {
+        // Получаем данные текущего пользователя
+        const myDoc = await db.collection('users').doc(currentUser.uid).get();
+        const myData = myDoc.data();
+        
+        if (!myData) return;
+        
+        // Получаем контакты другого пользователя из Firestore
+        const otherUserContactsRef = db.collection('users').doc(otherUserId).collection('contacts');
+        const otherContacts = await otherUserContactsRef.doc(currentUser.uid).get();
+        
+        // Если меня ещё нет в контактах у друга
+        if (!otherContacts.exists) {
+            // Добавляем себя в контакты друга
+            await otherUserContactsRef.doc(currentUser.uid).set({
+                id: currentUser.uid,
+                name: myData.username || currentUser.email.split('@')[0],
+                code: myData.code,
+                addedAt: new Date().toISOString()
+            });
+            
+            console.log(`✅ Я (${myData.username}) добавлен в контакты пользователя ${otherUserId}`);
+            showMessage(`📨 ${myData.username} добавлен в контакты к собеседнику!`, 'success');
+        }
+        
+    } catch (error) {
+        console.error('Ошибка при добавлении себя в контакты:', error);
+    }
+}
+
+// ==================== СОХРАНЕНИЕ КОНТАКТОВ В FIRESTORE ====================
+async function saveContactsToFirestore() {
+    if (!currentUser) return;
+    
+    try {
+        const contactsRef = db.collection('users').doc(currentUser.uid).collection('contacts');
+        
+        // Сохраняем все контакты
+        for (const contact of contacts) {
+            await contactsRef.doc(contact.id).set({
+                id: contact.id,
+                name: contact.name,
+                code: contact.code,
+                addedAt: new Date().toISOString()
+            });
+        }
+        
+        console.log('✅ Контакты сохранены в Firestore');
+    } catch (error) {
+        console.error('Ошибка сохранения контактов:', error);
+    }
+}
+
+// ==================== ЗАГРУЗКА КОНТАКТОВ ИЗ FIRESTORE ====================
+async function loadContactsFromFirestore() {
+    if (!currentUser) return;
+    
+    try {
+        const contactsRef = db.collection('users').doc(currentUser.uid).collection('contacts');
+        const snapshot = await contactsRef.get();
+        
+        if (!snapshot.empty) {
+            const firestoreContacts = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                firestoreContacts.push({
+                    id: data.id,
+                    name: data.name,
+                    code: data.code,
+                    status: 'offline'
+                });
+            });
+            
+            // Объединяем с локальными контактами (не дублируем)
+            for (const contact of firestoreContacts) {
+                const exists = contacts.some(c => c.id === contact.id);
+                if (!exists) {
+                    contacts.push(contact);
+                }
+            }
+            
+            renderContacts();
+            console.log('✅ Контакты загружены из Firestore');
+        }
+        
+        // Сохраняем обновленные контакты в localStorage
+        localStorage.setItem('flux_contacts', JSON.stringify(contacts));
+        
+    } catch (error) {
+        console.error('Ошибка загрузки контактов:', error);
+    }
 }
 
 // ==================== ОТОБРАЖЕНИЕ КОНТАКТОВ ====================
@@ -403,6 +503,9 @@ function renderContacts() {
     
     let html = '';
     contacts.forEach(contact => {
+        // Пропускаем себя
+        if (contact.id === currentUser?.uid) return;
+        
         html += `
             <div class="contact-item" onclick="openChat('${contact.id}')">
                 <span class="contact-status ${contact.status}"></span>
@@ -414,7 +517,11 @@ function renderContacts() {
         `;
     });
     
-    list.innerHTML = html;
+    if (html === '') {
+        list.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">💬 Нет контактов<br><small>Найдите собеседника по коду</small></div>';
+    } else {
+        list.innerHTML = html;
+    }
 }
 
 // ==================== ОТКРЫТИЕ ЧАТА ====================
@@ -563,14 +670,15 @@ auth.onAuthStateChanged(async (user) => {
                 lastSeen: new Date().toISOString()
             });
             
-            // Загружаем сохраненные контакты
-            loadSavedData();
+            // Загружаем сохраненные данные
+            loadSavedData();           // из localStorage
+            await loadContactsFromFirestore();  // из Firestore
             
             // Показываем чат
             document.getElementById('auth-container').style.display = 'none';
             document.getElementById('chat-container').style.display = 'flex';
             
-            console.log('✅ Чат открыт');
+            console.log('✅ Чат открыт, контактов:', contacts.length);
             
         } catch (error) {
             console.error('Ошибка:', error);
