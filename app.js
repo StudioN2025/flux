@@ -1,4 +1,4 @@
-// ==================== ПРОСТЕЙШАЯ РАБОЧАЯ ВЕРСИЯ ====================
+// ==================== ПРОСТАЯ РАБОЧАЯ ВЕРСИЯ ====================
 
 // Глобальные переменные
 let currentUser = null;
@@ -14,7 +14,7 @@ window.addEventListener('load', function() {
     document.getElementById('auth-container').style.display = 'flex';
     document.getElementById('chat-container').style.display = 'none';
     
-    // Привязываем обработчики через onclick (самый надежный способ)
+    // Привязываем обработчики
     bindButtons();
 });
 
@@ -65,7 +65,7 @@ function bindButtons() {
         searchUser();
     };
     
-    // Кнопка отправки сообщения
+    // Кнопка отправки
     document.getElementById('sendBtn').onclick = function(e) {
         e.preventDefault();
         sendMessage();
@@ -96,7 +96,7 @@ function bindButtons() {
 function showMessage(text, type) {
     console.log(text);
     
-    // Удаляем старые уведомления
+    // Удаляем старые
     document.querySelectorAll('.notification').forEach(el => el.remove());
     
     // Создаем новое
@@ -112,11 +112,11 @@ function showMessage(text, type) {
         color: white;
         z-index: 9999;
         background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#ff6b6b' : '#667eea'};
+        max-width: 300px;
     `;
     
     document.body.appendChild(notification);
-    
-    setTimeout(() => notification.remove(), 3000);
+    setTimeout(() => notification.remove(), 4000);
 }
 
 // ==================== ГЕНЕРАЦИЯ КОДА ====================
@@ -133,17 +133,22 @@ function generateCode() {
 async function registerUser() {
     console.log('Регистрация');
     
-    const username = document.getElementById('register-username').value;
-    const email = document.getElementById('register-email').value;
+    const username = document.getElementById('register-username').value.trim();
+    const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
     
     if (!username || !email || !password) {
-        showMessage('Заполните все поля', 'error');
+        showMessage('❌ Заполните все поля', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showMessage('❌ Пароль должен быть минимум 6 символов', 'error');
         return;
     }
     
     try {
-        showMessage('Регистрируем...', 'info');
+        showMessage('📝 Регистрация...', 'info');
         
         // Создаем пользователя
         const result = await auth.createUserWithEmailAndPassword(email, password);
@@ -157,10 +162,10 @@ async function registerUser() {
             email: email,
             code: code,
             online: true,
-            createdAt: new Date().toString()
+            createdAt: new Date().toISOString()
         });
         
-        showMessage('✅ Готово! Ваш код: ' + code, 'success');
+        showMessage(`✅ Регистрация успешна!\nВаш код: ${code}`, 'success');
         
         // Очищаем поля
         document.getElementById('register-username').value = '';
@@ -172,7 +177,19 @@ async function registerUser() {
         
     } catch (error) {
         console.error(error);
-        showMessage('Ошибка: ' + error.message, 'error');
+        
+        let msg = 'Ошибка: ';
+        if (error.code === 'auth/email-already-in-use') {
+            msg += 'Этот email уже зарегистрирован';
+        } else if (error.code === 'auth/invalid-email') {
+            msg += 'Неверный email';
+        } else if (error.code === 'auth/weak-password') {
+            msg += 'Слишком простой пароль';
+        } else {
+            msg += error.message;
+        }
+        
+        showMessage(msg, 'error');
     }
 }
 
@@ -180,25 +197,37 @@ async function registerUser() {
 async function loginUser() {
     console.log('Вход');
     
-    const email = document.getElementById('login-email').value;
+    const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     
     if (!email || !password) {
-        showMessage('Введите email и пароль', 'error');
+        showMessage('❌ Введите email и пароль', 'error');
         return;
     }
     
     try {
-        showMessage('Входим...', 'info');
+        showMessage('🔐 Вход...', 'info');
         await auth.signInWithEmailAndPassword(email, password);
-        showMessage('✅ Успешно!', 'success');
+        showMessage('✅ Вход выполнен!', 'success');
         
         document.getElementById('login-email').value = '';
         document.getElementById('login-password').value = '';
         
     } catch (error) {
         console.error(error);
-        showMessage('Ошибка: ' + error.message, 'error');
+        
+        let msg = 'Ошибка: ';
+        if (error.code === 'auth/invalid-login-credentials') {
+            msg += 'Неверный email или пароль';
+        } else if (error.code === 'auth/user-not-found') {
+            msg += 'Пользователь не найден';
+        } else if (error.code === 'auth/wrong-password') {
+            msg += 'Неверный пароль';
+        } else {
+            msg += error.message;
+        }
+        
+        showMessage(msg, 'error');
     }
 }
 
@@ -206,25 +235,25 @@ async function loginUser() {
 async function loginWithCode() {
     console.log('Вход по коду');
     
-    const code = document.getElementById('login-code').value.toUpperCase();
+    const code = document.getElementById('login-code').value.trim().toUpperCase();
     
     if (!code || code.length !== 12) {
-        showMessage('Введите 12-значный код', 'error');
+        showMessage('❌ Введите 12-значный код', 'error');
         return;
     }
     
     try {
-        showMessage('Ищем...', 'info');
+        showMessage('🔍 Поиск...', 'info');
         
         const snapshot = await db.collection('users').where('code', '==', code).get();
         
         if (snapshot.empty) {
-            showMessage('Пользователь не найден', 'error');
+            showMessage('❌ Пользователь не найден', 'error');
             return;
         }
         
         const userData = snapshot.docs[0].data();
-        showMessage('Найден: ' + userData.email, 'success');
+        showMessage(`✅ Найден: ${userData.email}\nВведите пароль`, 'success');
         
         document.getElementById('login-email').value = userData.email;
         document.getElementById('login-password').focus();
@@ -232,7 +261,7 @@ async function loginWithCode() {
         
     } catch (error) {
         console.error(error);
-        showMessage('Ошибка: ' + error.message, 'error');
+        showMessage('Ошибка поиска', 'error');
     }
 }
 
@@ -244,13 +273,11 @@ async function logoutUser() {
         if (currentUser) {
             await db.collection('users').doc(currentUser.uid).update({
                 online: false,
-                lastSeen: new Date().toString()
+                lastSeen: new Date().toISOString()
             });
         }
-        
         await auth.signOut();
-        showMessage('До свидания!', 'info');
-        
+        showMessage('👋 До свидания!', 'info');
     } catch (error) {
         console.error(error);
         await auth.signOut();
@@ -261,10 +288,10 @@ async function logoutUser() {
 async function searchUser() {
     console.log('Поиск');
     
-    const code = document.getElementById('searchCode').value.toUpperCase();
+    const code = document.getElementById('searchCode').value.trim().toUpperCase();
     
     if (!code || code.length !== 12) {
-        showMessage('Введите 12-значный код', 'error');
+        showMessage('❌ Введите 12-значный код', 'error');
         return;
     }
     
@@ -273,8 +300,9 @@ async function searchUser() {
         const resultDiv = document.getElementById('searchResult');
         
         if (snapshot.empty) {
-            resultDiv.innerHTML = '<div style="color: red">❌ Не найден</div>';
+            resultDiv.innerHTML = '<div style="color: #ff6b6b; padding: 10px;">❌ Пользователь не найден</div>';
             resultDiv.style.display = 'block';
+            setTimeout(() => resultDiv.style.display = 'none', 3000);
             return;
         }
         
@@ -282,20 +310,24 @@ async function searchUser() {
         const userData = userDoc.data();
         
         if (userDoc.id === currentUser?.uid) {
-            resultDiv.innerHTML = '<div style="color: red">❌ Это вы</div>';
+            resultDiv.innerHTML = '<div style="color: #ff6b6b; padding: 10px;">❌ Это ваш код</div>';
             resultDiv.style.display = 'block';
+            setTimeout(() => resultDiv.style.display = 'none', 3000);
             return;
         }
         
         resultDiv.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px;">
                 <div>
-                    <div><b>${userData.username || 'User'}</b></div>
-                    <div style="font-size: 12px">${userData.code}</div>
+                    <div style="font-weight: bold;">${escapeHtml(userData.username || 'Пользователь')}</div>
+                    <div style="font-size: 12px; color: #666;">${userData.code}</div>
+                    <div style="font-size: 11px; color: ${userData.online ? '#4caf50' : '#999'}">
+                        ${userData.online ? '🟢 Онлайн' : '⚫ Офлайн'}
+                    </div>
                 </div>
-                <button onclick="addContact('${userDoc.id}', '${userData.username || 'User'}', '${userData.code}')" 
-                        style="background: #4caf50; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer">
-                    +
+                <button onclick="addContact('${userDoc.id}', '${escapeHtml(userData.username || 'Пользователь')}', '${userData.code}')" 
+                        style="background: #4caf50; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer;">
+                    ➕ Добавить
                 </button>
             </div>
         `;
@@ -303,7 +335,7 @@ async function searchUser() {
         
     } catch (error) {
         console.error(error);
-        showMessage('Ошибка поиска', 'error');
+        showMessage('❌ Ошибка поиска', 'error');
     }
 }
 
@@ -311,7 +343,6 @@ async function searchUser() {
 function addContact(id, name, code) {
     console.log('Добавляем контакт:', name);
     
-    // Проверяем, есть ли уже
     const exists = contacts.some(c => c.id === id);
     
     if (!exists) {
@@ -323,7 +354,12 @@ function addContact(id, name, code) {
         });
         
         renderContacts();
-        showMessage('✅ Контакт добавлен', 'success');
+        showMessage(`✅ ${name} добавлен в контакты`, 'success');
+        
+        // Сохраняем в localStorage
+        localStorage.setItem('flux_contacts', JSON.stringify(contacts));
+    } else {
+        showMessage('⚠️ Контакт уже есть', 'info');
     }
     
     document.getElementById('searchCode').value = '';
@@ -335,7 +371,7 @@ function renderContacts() {
     const list = document.getElementById('contacts-list');
     
     if (contacts.length === 0) {
-        list.innerHTML = '<div style="text-align: center; color: #999; padding: 20px">Нет контактов</div>';
+        list.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">💬 Нет контактов<br><small>Найдите собеседника по коду</small></div>';
         return;
     }
     
@@ -345,8 +381,8 @@ function renderContacts() {
             <div class="contact-item" onclick="openChat('${contact.id}')">
                 <span class="contact-status ${contact.status}"></span>
                 <div style="flex: 1">
-                    <div style="font-weight: bold">${contact.name}</div>
-                    <div style="font-size: 11px; color: #666">${contact.code}</div>
+                    <div class="contact-name">${escapeHtml(contact.name)}</div>
+                    <div class="contact-code">${contact.code}</div>
                 </div>
             </div>
         `;
@@ -380,17 +416,22 @@ function loadMessages(userId) {
     const userMessages = messages[userId] || [];
     
     if (userMessages.length === 0) {
-        container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px">Нет сообщений</div>';
+        container.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">💬 Нет сообщений<br><small>Напишите первое сообщение</small></div>';
         return;
     }
     
     let html = '';
     userMessages.forEach(msg => {
         const isOwn = msg.from === currentUser?.uid;
+        const time = new Date(msg.time).toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
         html += `
             <div class="message ${isOwn ? 'own' : 'other'}">
                 <div>${escapeHtml(msg.text)}</div>
-                <div class="message-time">${new Date(msg.time).toLocaleTimeString()}</div>
+                <div class="message-time">${time}</div>
             </div>
         `;
     });
@@ -419,6 +460,9 @@ function sendMessage() {
     }
     messages[activeChat].push(msg);
     
+    // Сохраняем в localStorage
+    localStorage.setItem('flux_messages', JSON.stringify(messages));
+    
     loadMessages(activeChat);
     input.value = '';
 }
@@ -426,52 +470,83 @@ function sendMessage() {
 // ==================== КОПИРОВАНИЕ КОДА ====================
 function copyUserCode() {
     const code = document.getElementById('userCodeValue').textContent;
-    if (code) {
+    if (code && code !== '---') {
         navigator.clipboard.writeText(code);
-        showMessage('✅ Код скопирован', 'success');
+        showMessage('✅ Код скопирован!', 'success');
     }
 }
 
 // ==================== ЗАЩИТА ОТ XSS ====================
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
+// ==================== ЗАГРУЗКА СОХРАНЕННЫХ ДАННЫХ ====================
+function loadSavedData() {
+    try {
+        const savedContacts = localStorage.getItem('flux_contacts');
+        if (savedContacts) {
+            contacts = JSON.parse(savedContacts);
+            renderContacts();
+        }
+        
+        const savedMessages = localStorage.getItem('flux_messages');
+        if (savedMessages) {
+            messages = JSON.parse(savedMessages);
+        }
+    } catch (e) {
+        console.error('Ошибка загрузки:', e);
+    }
+}
+
 // ==================== СЛУШАТЕЛЬ АВТОРИЗАЦИИ ====================
 auth.onAuthStateChanged(async (user) => {
-    console.log('Статус:', user ? 'Вошёл' : 'Вышел');
+    console.log('Статус:', user ? '✅ ВОШЁЛ' : '❌ ВЫШЕЛ');
     
     if (user) {
         currentUser = user;
         
-        // Получаем данные
-        const doc = await db.collection('users').doc(user.uid).get();
-        
-        if (doc.exists) {
-            const data = doc.data();
-            document.getElementById('userCodeValue').textContent = data.code || '---';
+        try {
+            // Получаем данные пользователя
+            const doc = await db.collection('users').doc(user.uid).get();
             
-            // Добавляем себя
-            contacts = [{
-                id: user.uid,
-                name: data.username || 'Я',
-                code: data.code,
-                status: 'online'
-            }];
+            if (doc.exists) {
+                const data = doc.data();
+                document.getElementById('userCodeValue').textContent = data.code || '---';
+                console.log('Код пользователя:', data.code);
+            } else {
+                // Если нет профиля, создаем
+                const code = generateCode();
+                await db.collection('users').doc(user.uid).set({
+                    username: user.email.split('@')[0],
+                    email: user.email,
+                    code: code,
+                    online: true,
+                    createdAt: new Date().toISOString()
+                });
+                document.getElementById('userCodeValue').textContent = code;
+            }
+            
+            // Обновляем статус
+            await db.collection('users').doc(user.uid).update({
+                online: true,
+                lastSeen: new Date().toISOString()
+            });
+            
+            // Загружаем сохраненные контакты
+            loadSavedData();
+            
+            // Показываем чат
+            document.getElementById('auth-container').style.display = 'none';
+            document.getElementById('chat-container').style.display = 'flex';
+            
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showMessage('Ошибка загрузки профиля', 'error');
         }
-        
-        // Обновляем статус
-        await db.collection('users').doc(user.uid).update({
-            online: true,
-            lastSeen: new Date().toString()
-        });
-        
-        // Показываем чат
-        document.getElementById('auth-container').style.display = 'none';
-        document.getElementById('chat-container').style.display = 'flex';
-        renderContacts();
         
     } else {
         currentUser = null;
