@@ -1,27 +1,26 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc, setDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
-// Firebase конфигурация
+// Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
-  authDomain: "flux-a1396.firebaseapp.com",
-  projectId: "flux-a1396",
-  storageBucket: "flux-a1396.firebasestorage.app",
-  messagingSenderId: "670873031130",
-  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
+    apiKey: "AIzaSyB...",  // Вставьте ваш API ключ
+    authDomain: "your-project.firebaseapp.com",
+    projectId: "your-project",
+    storageBucket: "your-project.appspot.com",
+    messagingSenderId: "123456789",
+    appId: "1:123456789:web:abcdef"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Криптографические функции
+// ============= КРИПТОГРАФИЧЕСКИЕ ФУНКЦИИ =============
 class CryptoManager {
     constructor() {
         this.encoder = new TextEncoder();
         this.decoder = new TextDecoder();
     }
     
-    // Генерация ключа из пароля
     async deriveKey(password, salt) {
         const keyMaterial = await crypto.subtle.importKey(
             'raw',
@@ -45,26 +44,20 @@ class CryptoManager {
         );
     }
     
-    // Генерация случайного соли
     generateSalt() {
         return crypto.getRandomValues(new Uint8Array(16));
     }
     
-    // Генерация случайного IV
     generateIV() {
         return crypto.getRandomValues(new Uint8Array(12));
     }
     
-    // Шифрование текста
     async encryptText(text, key) {
         const iv = this.generateIV();
         const encodedData = this.encoder.encode(text);
         
         const encryptedData = await crypto.subtle.encrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
+            { name: 'AES-GCM', iv: iv },
             key,
             encodedData
         );
@@ -75,16 +68,12 @@ class CryptoManager {
         };
     }
     
-    // Дешифрование текста
     async decryptText(encryptedObj, key) {
         const iv = new Uint8Array(encryptedObj.iv);
         const data = new Uint8Array(encryptedObj.data);
         
         const decryptedData = await crypto.subtle.decrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
+            { name: 'AES-GCM', iv: iv },
             key,
             data
         );
@@ -92,21 +81,16 @@ class CryptoManager {
         return this.decoder.decode(decryptedData);
     }
     
-    // Шифрование файла в текст (base64)
     async encryptFileToText(file, key) {
         const iv = this.generateIV();
         const fileBuffer = await file.arrayBuffer();
         
         const encryptedData = await crypto.subtle.encrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
+            { name: 'AES-GCM', iv: iv },
             key,
             fileBuffer
         );
         
-        // Конвертируем в base64 для передачи как текст
         const base64Data = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
         
         return {
@@ -118,16 +102,12 @@ class CryptoManager {
         };
     }
     
-    // Дешифрование файла из текста
     async decryptFileFromText(encryptedObj, key) {
         const iv = new Uint8Array(encryptedObj.iv);
         const encryptedData = Uint8Array.from(atob(encryptedObj.data), c => c.charCodeAt(0));
         
         const decryptedData = await crypto.subtle.decrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv
-            },
+            { name: 'AES-GCM', iv: iv },
             key,
             encryptedData
         );
@@ -139,37 +119,38 @@ class CryptoManager {
             size: encryptedObj.size
         };
     }
-    
-    // Создание общего ключа для чата (на основе паролей пользователей)
-    async createSharedKey(userPassword, otherUserPassword, salt) {
-        const userKey = await this.deriveKey(userPassword, salt);
-        const otherKey = await this.deriveKey(otherUserPassword, salt);
-        
-        // Комбинируем ключи для создания общего ключа
-        const combinedKey = await crypto.subtle.deriveKey(
-            {
-                name: 'HKDF',
-                hash: 'SHA-256',
-                salt: salt,
-                info: this.encoder.encode('flux-chat-key')
-            },
-            await crypto.subtle.importKey(
-                'raw',
-                await crypto.subtle.exportKey('raw', userKey),
-                { name: 'HKDF' },
-                false,
-                ['deriveKey']
-            ),
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['encrypt', 'decrypt']
-        );
-        
-        return combinedKey;
-    }
 }
 
-// Состояние приложения
+// ============= СЕРИАЛИЗАЦИЯ WEBRTC ОБЪЕКТОВ =============
+function serializeCandidate(candidate) {
+    if (!candidate) return null;
+    return {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment
+    };
+}
+
+function deserializeCandidate(candidateObj) {
+    if (!candidateObj) return null;
+    return new RTCIceCandidate(candidateObj);
+}
+
+function serializeSessionDescription(description) {
+    if (!description) return null;
+    return {
+        type: description.type,
+        sdp: description.sdp
+    };
+}
+
+function deserializeSessionDescription(descriptionObj) {
+    if (!descriptionObj) return null;
+    return new RTCSessionDescription(descriptionObj);
+}
+
+// ============= СОСТОЯНИЕ ПРИЛОЖЕНИЯ =============
 let currentUser = null;
 let currentChat = null;
 let users = new Map();
@@ -180,9 +161,18 @@ let localStream = null;
 let remoteStream = null;
 let currentCall = null;
 let cryptoManager = new CryptoManager();
-let userKeys = new Map(); // Хранилище ключей для каждого чата
+let userKeys = new Map();
 
-// DOM элементы
+// WebRTC конфигурация
+const configuration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+};
+
+// ============= DOM ЭЛЕМЕНТЫ =============
 const authScreen = document.getElementById('auth-screen');
 const messengerScreen = document.getElementById('messenger-screen');
 const usernameInput = document.getElementById('username');
@@ -209,61 +199,27 @@ const muteAudioBtn = document.getElementById('mute-audio-btn');
 const muteVideoBtn = document.getElementById('mute-video-btn');
 const authError = document.getElementById('auth-error');
 
-// WebRTC конфигурация
-const configuration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-};
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
-// Регистрация пользователя с сохранением пароля
-registerBtn.addEventListener('click', async () => {
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
-    
-    if (!username || !password) {
-        authError.textContent = 'Заполните все поля';
-        return;
-    }
-    
-    try {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('username', '==', username));
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-            authError.textContent = 'Пользователь уже существует';
-            return;
-        }
-        
-        // Создаем соль для пользователя
-        const salt = cryptoManager.generateSalt();
-        
-        // Сохраняем пользователя с зашифрованным паролем
-        const userRef = await addDoc(usersRef, {
-            username: username,
-            passwordHash: await hashPassword(password, salt),
-            salt: Array.from(salt),
-            status: 'online',
-            createdAt: serverTimestamp()
-        });
-        
-        authError.textContent = 'Регистрация успешна! Теперь войдите.';
-        authError.style.color = '#4caf50';
-        
-        setTimeout(() => {
-            authError.textContent = '';
-            authError.style.color = '#ff4444';
-        }, 3000);
-        
-    } catch (error) {
-        console.error('Ошибка регистрации:', error);
-        authError.textContent = 'Ошибка регистрации';
-    }
-});
+function formatTime(timestamp) {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
 
-// Хеширование пароля
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
 async function hashPassword(password, salt) {
     const encoder = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
@@ -288,7 +244,51 @@ async function hashPassword(password, salt) {
     return Array.from(new Uint8Array(hash));
 }
 
-// Вход в систему
+// ============= УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ =============
+registerBtn.addEventListener('click', async () => {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+    
+    if (!username || !password) {
+        authError.textContent = 'Заполните все поля';
+        return;
+    }
+    
+    try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('username', '==', username));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+            authError.textContent = 'Пользователь уже существует';
+            return;
+        }
+        
+        const salt = cryptoManager.generateSalt();
+        const passwordHash = await hashPassword(password, salt);
+        
+        await addDoc(usersRef, {
+            username: username,
+            passwordHash: passwordHash,
+            salt: Array.from(salt),
+            status: 'online',
+            createdAt: serverTimestamp()
+        });
+        
+        authError.textContent = 'Регистрация успешна! Теперь войдите.';
+        authError.style.color = '#4caf50';
+        
+        setTimeout(() => {
+            authError.textContent = '';
+            authError.style.color = '#ff4444';
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Ошибка регистрации:', error);
+        authError.textContent = 'Ошибка регистрации: ' + error.message;
+    }
+});
+
 loginBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
@@ -312,7 +312,6 @@ loginBtn.addEventListener('click', async () => {
         const userData = userDoc.data();
         const salt = new Uint8Array(userData.salt);
         
-        // Проверяем пароль
         const passwordHash = await hashPassword(password, salt);
         if (JSON.stringify(passwordHash) !== JSON.stringify(userData.passwordHash)) {
             authError.textContent = 'Неверный пароль';
@@ -322,10 +321,9 @@ loginBtn.addEventListener('click', async () => {
         currentUser = {
             id: userDoc.id,
             username: username,
-            password: password // Сохраняем для генерации ключей
+            password: password
         };
         
-        // Обновляем статус
         const userDocRef = doc(db, 'users', currentUser.id);
         await updateDoc(userDocRef, {
             status: 'online',
@@ -336,24 +334,27 @@ loginBtn.addEventListener('click', async () => {
         authScreen.classList.remove('active');
         messengerScreen.classList.add('active');
         
-        loadUsers();
+        await loadUsers();
         setupRealtimeUsers();
         setupDataChannelSignaling();
         
     } catch (error) {
         console.error('Ошибка входа:', error);
-        authError.textContent = 'Ошибка входа';
+        authError.textContent = 'Ошибка входа: ' + error.message;
     }
 });
 
-// Выход из системы
 logoutBtn.addEventListener('click', async () => {
     if (currentUser) {
-        const userDoc = doc(db, 'users', currentUser.id);
-        await updateDoc(userDoc, {
-            status: 'offline',
-            lastSeen: serverTimestamp()
-        });
+        try {
+            const userDoc = doc(db, 'users', currentUser.id);
+            await updateDoc(userDoc, {
+                status: 'offline',
+                lastSeen: serverTimestamp()
+            });
+        } catch (error) {
+            console.error('Ошибка обновления статуса:', error);
+        }
         
         for (const [userId, pc] of peerConnections) {
             pc.close();
@@ -361,6 +362,10 @@ logoutBtn.addEventListener('click', async () => {
         peerConnections.clear();
         dataChannels.clear();
         userKeys.clear();
+        
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
     }
     
     currentUser = null;
@@ -373,7 +378,7 @@ logoutBtn.addEventListener('click', async () => {
     passwordInput.value = '';
 });
 
-// Загрузка пользователей
+// ============= ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ =============
 async function loadUsers() {
     const usersRef = collection(db, 'users');
     const querySnapshot = await getDocs(usersRef);
@@ -388,7 +393,6 @@ async function loadUsers() {
                 status: user.status
             });
             
-            // Генерируем общий ключ для чата
             await generateSharedKey(doc.id);
             await establishPeerConnection(doc.id);
         }
@@ -397,15 +401,11 @@ async function loadUsers() {
     renderUsersList();
 }
 
-// Генерация общего ключа для чата
 async function generateSharedKey(userId) {
     const user = users.get(userId);
     if (!user) return;
     
-    // Создаем уникальную соль для чата
     const chatSalt = new TextEncoder().encode(`flux-chat-${currentUser.id}-${userId}`);
-    
-    // Генерируем общий ключ на основе паролей пользователей
     const sharedKey = await cryptoManager.deriveKey(
         currentUser.password + user.username,
         chatSalt
@@ -414,7 +414,7 @@ async function generateSharedKey(userId) {
     userKeys.set(userId, sharedKey);
 }
 
-// Установка P2P соединения
+// ============= P2P СОЕДИНЕНИЕ =============
 async function establishPeerConnection(userId) {
     if (peerConnections.has(userId)) return;
     
@@ -433,15 +433,24 @@ async function establishPeerConnection(userId) {
         await handleEncryptedData(encryptedData, userId);
     };
     
+    dataChannel.onerror = (error) => {
+        console.error('Data channel error:', error);
+    };
+    
     peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
-            await addDoc(collection(db, 'signals'), {
-                type: 'candidate',
-                from: currentUser.id,
-                to: userId,
-                candidate: event.candidate,
-                timestamp: serverTimestamp()
-            });
+            try {
+                const serializedCandidate = serializeCandidate(event.candidate);
+                await addDoc(collection(db, 'signals'), {
+                    type: 'candidate',
+                    from: currentUser.id,
+                    to: userId,
+                    candidate: serializedCandidate,
+                    timestamp: serverTimestamp()
+                });
+            } catch (error) {
+                console.error('Ошибка сохранения кандидата:', error);
+            }
         }
     };
     
@@ -455,19 +464,80 @@ async function establishPeerConnection(userId) {
         };
     };
     
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
+    peerConnection.onconnectionstatechange = () => {
+        console.log(`Connection state with ${userId}: ${peerConnection.connectionState}`);
+        if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
+            peerConnections.delete(userId);
+            dataChannels.delete(userId);
+        }
+    };
     
-    await addDoc(collection(db, 'signals'), {
-        type: 'offer',
-        from: currentUser.id,
-        to: userId,
-        offer: offer,
-        timestamp: serverTimestamp()
+    try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        const serializedOffer = serializeSessionDescription(offer);
+        await addDoc(collection(db, 'signals'), {
+            type: 'offer',
+            from: currentUser.id,
+            to: userId,
+            offer: serializedOffer,
+            timestamp: serverTimestamp()
+        });
+    } catch (error) {
+        console.error('Ошибка создания offer:', error);
+    }
+}
+
+function setupDataChannelSignaling() {
+    const signalsRef = collection(db, 'signals');
+    const q = query(signalsRef, where('to', '==', currentUser.id));
+    
+    onSnapshot(q, async (snapshot) => {
+        for (const doc of snapshot.docs) {
+            const signal = doc.data();
+            const peerConnection = peerConnections.get(signal.from);
+            
+            if (peerConnection) {
+                try {
+                    if (signal.type === 'offer') {
+                        const offer = deserializeSessionDescription(signal.offer);
+                        await peerConnection.setRemoteDescription(offer);
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        
+                        const serializedAnswer = serializeSessionDescription(answer);
+                        await addDoc(collection(db, 'signals'), {
+                            type: 'answer',
+                            from: currentUser.id,
+                            to: signal.from,
+                            answer: serializedAnswer,
+                            timestamp: serverTimestamp()
+                        });
+                    } else if (signal.type === 'answer') {
+                        const answer = deserializeSessionDescription(signal.answer);
+                        await peerConnection.setRemoteDescription(answer);
+                    } else if (signal.type === 'candidate') {
+                        const candidate = deserializeCandidate(signal.candidate);
+                        if (candidate) {
+                            await peerConnection.addIceCandidate(candidate);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка обработки сигнала:', error);
+                }
+            }
+            
+            try {
+                await deleteDoc(doc.ref);
+            } catch (error) {
+                console.error('Ошибка удаления сигнала:', error);
+            }
+        }
     });
 }
 
-// Обработка зашифрованных данных
+// ============= ОБРАБОТКА ШИФРОВАННЫХ ДАННЫХ =============
 async function handleEncryptedData(encryptedData, fromUserId) {
     const sharedKey = userKeys.get(fromUserId);
     if (!sharedKey) return;
@@ -489,7 +559,6 @@ async function handleEncryptedData(encryptedData, fromUserId) {
                 break;
                 
             case 'file':
-                // Сохраняем зашифрованный файл в localStorage
                 const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
                 files[data.fileId] = {
                     encryptedData: data.fileData,
@@ -516,20 +585,30 @@ async function handleEncryptedData(encryptedData, fromUserId) {
     }
 }
 
-// Отправка зашифрованных данных
 async function sendEncryptedData(userId, data) {
     const sharedKey = userKeys.get(userId);
-    if (!sharedKey) return false;
+    if (!sharedKey) {
+        console.warn('Ключ шифрования не найден');
+        return false;
+    }
     
     const dataChannel = dataChannels.get(userId);
-    if (!dataChannel || dataChannel.readyState !== 'open') return false;
+    if (!dataChannel || dataChannel.readyState !== 'open') {
+        console.warn('Data channel не открыт');
+        return false;
+    }
     
-    const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
-    dataChannel.send(JSON.stringify(encrypted));
-    return true;
+    try {
+        const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
+        dataChannel.send(JSON.stringify(encrypted));
+        return true;
+    } catch (error) {
+        console.error('Ошибка отправки:', error);
+        return false;
+    }
 }
 
-// Отправка текстового сообщения
+// ============= СООБЩЕНИЯ =============
 sendBtn.addEventListener('click', async () => {
     if (!messageInput.value.trim() || !currentChat) return;
     
@@ -554,7 +633,13 @@ sendBtn.addEventListener('click', async () => {
     }
 });
 
-// Отправка файла
+messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+    }
+});
+
 fileBtn.addEventListener('click', () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -567,7 +652,6 @@ fileBtn.addEventListener('click', () => {
     input.click();
 });
 
-// Отправка зашифрованного файла
 async function sendEncryptedFile(file) {
     const sharedKey = userKeys.get(currentChat.id);
     if (!sharedKey) {
@@ -576,8 +660,6 @@ async function sendEncryptedFile(file) {
     }
     
     const fileId = `${Date.now()}_${file.name}`;
-    
-    // Шифруем файл
     const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
     
     const success = await sendEncryptedData(currentChat.id, {
@@ -590,7 +672,6 @@ async function sendEncryptedFile(file) {
     });
     
     if (success) {
-        // Сохраняем зашифрованный файл локально
         const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
         files[fileId] = encryptedFile;
         localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
@@ -610,7 +691,6 @@ async function sendEncryptedFile(file) {
     }
 }
 
-// Сохранение сообщения
 async function saveMessage(message) {
     try {
         const messagesRef = collection(db, 'messages');
@@ -620,11 +700,10 @@ async function saveMessage(message) {
             participants: [message.senderId, message.receiverId]
         });
     } catch (error) {
-        console.error('Ошибка сохранения:', error);
+        console.error('Ошибка сохранения сообщения:', error);
     }
 }
 
-// Загрузка сообщений
 function loadMessages() {
     if (messagesListener) messagesListener();
     
@@ -652,7 +731,6 @@ function loadMessages() {
     });
 }
 
-// Отображение сообщений
 function renderMessages(messages) {
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
@@ -693,7 +771,6 @@ function renderMessages(messages) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// Скачивание и дешифрование файла
 async function downloadAndDecryptFile(fileId) {
     const sharedKey = userKeys.get(currentChat.id);
     if (!sharedKey) {
@@ -707,7 +784,6 @@ async function downloadAndDecryptFile(fileId) {
     if (encryptedFile) {
         try {
             const decryptedFile = await cryptoManager.decryptFileFromText(encryptedFile, sharedKey);
-            
             const blob = new Blob([decryptedFile.data], { type: decryptedFile.type });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -724,42 +800,7 @@ async function downloadAndDecryptFile(fileId) {
     }
 }
 
-// Сигналинг для WebRTC
-function setupDataChannelSignaling() {
-    const signalsRef = collection(db, 'signals');
-    const q = query(signalsRef, where('to', '==', currentUser.id));
-    
-    onSnapshot(q, async (snapshot) => {
-        for (const doc of snapshot.docs) {
-            const signal = doc.data();
-            const peerConnection = peerConnections.get(signal.from);
-            
-            if (peerConnection) {
-                if (signal.type === 'offer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    
-                    await addDoc(collection(db, 'signals'), {
-                        type: 'answer',
-                        from: currentUser.id,
-                        to: signal.from,
-                        answer: answer,
-                        timestamp: serverTimestamp()
-                    });
-                } else if (signal.type === 'answer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
-                } else if (signal.type === 'candidate') {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                }
-            }
-            
-            await deleteDoc(doc.ref);
-        }
-    });
-}
-
-// Выбор чата
+// ============= ВЫБОР ЧАТА =============
 function selectChat(user) {
     currentChat = user;
     chatUsername.textContent = user.username;
@@ -775,7 +816,6 @@ function selectChat(user) {
     loadMessages();
 }
 
-// Отображение списка пользователей
 function renderUsersList() {
     const searchTerm = searchUsers.value.toLowerCase();
     const filteredUsers = Array.from(users.values()).filter(user => 
@@ -801,7 +841,9 @@ function renderUsersList() {
     });
 }
 
-// WebRTC звонки (аудио/видео уже шифруются самим WebRTC)
+searchUsers.addEventListener('input', renderUsersList);
+
+// ============= АУДИО/ВИДЕО ЗВОНКИ =============
 audioCallBtn.addEventListener('click', () => startCall(false));
 videoCallBtn.addEventListener('click', () => startCall(true));
 
@@ -815,7 +857,10 @@ async function startCall(isVideo) {
         localVideo.srcObject = localStream;
         
         const peerConnection = peerConnections.get(currentChat.id);
-        if (!peerConnection) return;
+        if (!peerConnection) {
+            alert('Нет P2P соединения');
+            return;
+        }
         
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
@@ -831,7 +876,7 @@ async function startCall(isVideo) {
         
     } catch (error) {
         console.error('Ошибка звонка:', error);
-        alert('Не удалось начать звонок');
+        alert('Не удалось начать звонок. Проверьте разрешения для камеры и микрофона.');
     }
 }
 
@@ -864,7 +909,7 @@ muteVideoBtn.addEventListener('click', () => {
     }
 });
 
-// Реальное обновление статусов
+// ============= РЕАЛЬНОЕ ОБНОВЛЕНИЕ СТАТУСОВ =============
 function setupRealtimeUsers() {
     const usersRef = collection(db, 'users');
     onSnapshot(usersRef, (snapshot) => {
@@ -891,31 +936,4 @@ function setupRealtimeUsers() {
     });
 }
 
-searchUsers.addEventListener('input', renderUsersList);
-messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendBtn.click();
-    }
-});
-
-// Вспомогательные функции
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function formatTime(timestamp) {
-    if (!timestamp) return '';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+console.log('✅ Flux Messenger загружен и готов к работе!');
