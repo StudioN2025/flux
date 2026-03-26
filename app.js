@@ -3,12 +3,12 @@ import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-    apiKey: "AIzaSyB...",  // Вставьте ваш API ключ
-    authDomain: "your-project.firebaseapp.com",
-    projectId: "your-project",
-    storageBucket: "your-project.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
+  authDomain: "flux-a1396.firebaseapp.com",
+  projectId: "flux-a1396",
+  storageBucket: "flux-a1396.firebasestorage.app",
+  messagingSenderId: "670873031130",
+  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
 };
 
 const app = initializeApp(firebaseConfig);
