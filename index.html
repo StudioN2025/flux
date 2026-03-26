@@ -35,12 +35,14 @@
                         <div class="avatar" id="user-avatar">👤</div>
                         <div class="user-details">
                             <div class="username" id="current-user"></div>
+                            <div class="user-code" id="user-code" style="font-size: 11px; color: #666; cursor: pointer;" title="Нажмите чтобы скопировать"></div>
                             <div class="status" id="user-status">Офлайн</div>
                         </div>
                         <button id="logout-btn" class="icon-btn">🚪</button>
                     </div>
                     <div class="search-box">
-                        <input type="text" id="search-users" placeholder="Поиск пользователей...">
+                        <input type="text" id="search-users" placeholder="Поиск по имени или 12-значному коду...">
+                        <button id="search-by-code-btn" class="icon-btn" style="position: absolute; right: 20px; top: 15px;">🔍</button>
                     </div>
                     <div class="users-list" id="users-list">
                         <!-- Список пользователей будет здесь -->
@@ -54,6 +56,7 @@
                             <div class="chat-avatar">👤</div>
                             <div class="chat-user-details">
                                 <div class="chat-username" id="chat-username">Выберите чат</div>
+                                <div class="chat-code" id="chat-code" style="font-size: 10px; color: #999;"></div>
                                 <div class="chat-status" id="chat-status">Не в сети</div>
                             </div>
                         </div>
@@ -95,6 +98,89 @@
             </div>
         </div>
     </div>
+
+    <!-- Модальное окно для поиска по коду -->
+    <div id="code-search-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Поиск по коду</h3>
+            <input type="text" id="code-input" placeholder="Введите 12-значный код" maxlength="12">
+            <div class="modal-buttons">
+                <button id="modal-search-btn" class="btn-primary">Найти</button>
+                <button id="modal-close-btn" class="btn-secondary">Закрыть</button>
+            </div>
+            <div id="modal-error" class="error-message"></div>
+        </div>
+    </div>
+
+    <style>
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .modal.hidden {
+            display: none;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 400px;
+        }
+        .modal-content h3 {
+            margin-bottom: 20px;
+        }
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .modal-buttons button {
+            flex: 1;
+        }
+        .user-code {
+            font-family: monospace;
+            font-size: 11px;
+            color: #666;
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        .user-code:hover {
+            background: #f0f0f0;
+        }
+        .search-box {
+            position: relative;
+        }
+        .search-box button {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
 
     <script type="module" src="app.js"></script>
 </body>
