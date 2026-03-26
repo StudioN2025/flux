@@ -3,12 +3,12 @@ import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
-  authDomain: "flux-a1396.firebaseapp.com",
-  projectId: "flux-a1396",
-  storageBucket: "flux-a1396.firebasestorage.app",
-  messagingSenderId: "670873031130",
-  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
+    apiKey: "AIzaSyB...",
+    authDomain: "your-project.firebaseapp.com",
+    projectId: "your-project",
+    storageBucket: "your-project.appspot.com",
+    messagingSenderId: "123456789",
+    appId: "1:123456789:web:abcdef"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -184,7 +184,6 @@ let currentCall = null;
 let cryptoManager = new CryptoManager();
 let userKeys = new Map();
 
-// WebRTC конфигурация
 const configuration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -203,12 +202,14 @@ const registerBtn = document.getElementById('register-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const currentUserSpan = document.getElementById('current-user');
 const userCodeSpan = document.getElementById('user-code');
+const copyCodeBtn = document.getElementById('copy-code-btn');
 const usersList = document.getElementById('users-list');
 const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const fileBtn = document.getElementById('file-btn');
 const searchUsers = document.getElementById('search-users');
+const searchByCodeBtn = document.getElementById('search-by-code-btn');
 const chatUsername = document.getElementById('chat-username');
 const chatCodeSpan = document.getElementById('chat-code');
 const chatStatus = document.getElementById('chat-status');
@@ -221,13 +222,12 @@ const endCallBtn = document.getElementById('end-call-btn');
 const muteAudioBtn = document.getElementById('mute-audio-btn');
 const muteVideoBtn = document.getElementById('mute-video-btn');
 const authError = document.getElementById('auth-error');
-
-// Модальное окно поиска
 const modal = document.getElementById('code-search-modal');
 const codeInput = document.getElementById('code-input');
 const modalSearchBtn = document.getElementById('modal-search-btn');
 const modalCloseBtn = document.getElementById('modal-close-btn');
 const modalError = document.getElementById('modal-error');
+const toast = document.getElementById('copy-toast');
 
 // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function escapeHtml(text) {
@@ -274,7 +274,6 @@ async function hashPassword(password, salt) {
     return Array.from(new Uint8Array(hash));
 }
 
-// Генерация уникального кода
 async function generateUniqueCode() {
     let attempts = 0;
     let code;
@@ -290,6 +289,31 @@ async function generateUniqueCode() {
     }
     
     return code;
+}
+
+// ============= КОПИРОВАНИЕ В БУФЕР =============
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        showToast('✅ Код скопирован!');
+    } catch (err) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('✅ Код скопирован!');
+    }
+}
+
+function showToast(message) {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 2000);
 }
 
 // ============= УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ =============
@@ -331,7 +355,7 @@ registerBtn.addEventListener('click', async () => {
             createdAt: serverTimestamp()
         });
         
-        authError.textContent = `Регистрация успешна! Ваш код: ${userCode} Сохраните его!`;
+        authError.textContent = `Регистрация успешна! Ваш код: ${userCode}`;
         authError.style.color = '#4caf50';
         
         setTimeout(() => {
@@ -388,11 +412,11 @@ loginBtn.addEventListener('click', async () => {
         });
         
         currentUserSpan.textContent = username;
-        userCodeSpan.textContent = `🔑 ${currentUser.userCode}`;
-        userCodeSpan.onclick = () => {
-            navigator.clipboard.writeText(currentUser.userCode);
-            alert('Код скопирован!');
-        };
+        userCodeSpan.textContent = currentUser.userCode;
+        
+        const copyHandler = () => copyToClipboard(currentUser.userCode);
+        userCodeSpan.onclick = copyHandler;
+        if (copyCodeBtn) copyCodeBtn.onclick = copyHandler;
         
         authScreen.classList.remove('active');
         messengerScreen.classList.add('active');
@@ -450,16 +474,12 @@ async function searchUsersByCode(code) {
         const q = query(usersRef, where('userCode', '==', normalizedCode));
         const querySnapshot = await getDocs(q);
         
-        if (querySnapshot.empty) {
-            return null;
-        }
+        if (querySnapshot.empty) return null;
         
         const userDoc = querySnapshot.docs[0];
         const userData = userDoc.data();
         
-        if (userDoc.id === currentUser.id) {
-            return null;
-        }
+        if (userDoc.id === currentUser.id) return null;
         
         return {
             id: userDoc.id,
@@ -473,13 +493,14 @@ async function searchUsersByCode(code) {
     }
 }
 
-// Открытие модального окна
-document.getElementById('search-by-code-btn')?.addEventListener('click', () => {
-    modal.classList.remove('hidden');
-    codeInput.value = '';
-    modalError.textContent = '';
-    codeInput.focus();
-});
+if (searchByCodeBtn) {
+    searchByCodeBtn.addEventListener('click', () => {
+        modal.classList.remove('hidden');
+        codeInput.value = '';
+        modalError.textContent = '';
+        codeInput.focus();
+    });
+}
 
 modalCloseBtn.addEventListener('click', () => {
     modal.classList.add('hidden');
@@ -509,9 +530,7 @@ modalSearchBtn.addEventListener('click', async () => {
 });
 
 codeInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        modalSearchBtn.click();
-    }
+    if (e.key === 'Enter') modalSearchBtn.click();
 });
 
 // ============= ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ =============
@@ -561,10 +580,7 @@ async function establishPeerConnection(userId) {
     const dataChannel = peerConnection.createDataChannel('encrypted-chat');
     dataChannels.set(userId, dataChannel);
     
-    dataChannel.onopen = () => {
-        console.log(`🔐 Encrypted channel opened with ${userId}`);
-    };
-    
+    dataChannel.onopen = () => console.log(`🔐 Channel opened with ${userId}`);
     dataChannel.onmessage = async (event) => {
         const encryptedData = JSON.parse(event.data);
         await handleEncryptedData(encryptedData, userId);
@@ -590,7 +606,6 @@ async function establishPeerConnection(userId) {
     peerConnection.ondatachannel = (event) => {
         const channel = event.channel;
         dataChannels.set(userId, channel);
-        
         channel.onmessage = async (event) => {
             const encryptedData = JSON.parse(event.data);
             await handleEncryptedData(encryptedData, userId);
@@ -600,7 +615,6 @@ async function establishPeerConnection(userId) {
     try {
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        
         const serializedOffer = serializeSessionDescription(offer);
         await addDoc(collection(db, 'signals'), {
             type: 'offer',
@@ -630,7 +644,6 @@ function setupDataChannelSignaling() {
                         await peerConnection.setRemoteDescription(offer);
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
-                        
                         const serializedAnswer = serializeSessionDescription(answer);
                         await addDoc(collection(db, 'signals'), {
                             type: 'answer',
@@ -644,20 +657,13 @@ function setupDataChannelSignaling() {
                         await peerConnection.setRemoteDescription(answer);
                     } else if (signal.type === 'candidate') {
                         const candidate = deserializeCandidate(signal.candidate);
-                        if (candidate) {
-                            await peerConnection.addIceCandidate(candidate);
-                        }
+                        if (candidate) await peerConnection.addIceCandidate(candidate);
                     }
                 } catch (error) {
                     console.error('Ошибка обработки сигнала:', error);
                 }
             }
-            
-            try {
-                await deleteDoc(doc.ref);
-            } catch (error) {
-                console.error('Ошибка удаления сигнала:', error);
-            }
+            try { await deleteDoc(doc.ref); } catch (error) { console.error('Ошибка удаления сигнала:', error); }
         }
     });
 }
@@ -682,7 +688,6 @@ async function handleEncryptedData(encryptedData, fromUserId) {
                     timestamp: new Date()
                 });
                 break;
-                
             case 'file':
                 const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
                 files[data.fileId] = {
@@ -692,7 +697,6 @@ async function handleEncryptedData(encryptedData, fromUserId) {
                     type: data.fileType
                 };
                 localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
-                
                 await saveMessage({
                     id: Date.now(),
                     senderId: fromUserId,
@@ -732,10 +736,7 @@ sendBtn.addEventListener('click', async () => {
     if (!messageInput.value.trim() || !currentChat) return;
     
     const content = messageInput.value.trim();
-    const success = await sendEncryptedData(currentChat.id, {
-        type: 'text',
-        content: content
-    });
+    const success = await sendEncryptedData(currentChat.id, { type: 'text', content: content });
     
     if (success) {
         await saveMessage({
@@ -764,19 +765,14 @@ fileBtn.addEventListener('click', () => {
     input.type = 'file';
     input.onchange = async (e) => {
         const file = e.target.files[0];
-        if (file && currentChat) {
-            await sendEncryptedFile(file);
-        }
+        if (file && currentChat) await sendEncryptedFile(file);
     };
     input.click();
 });
 
 async function sendEncryptedFile(file) {
     const sharedKey = userKeys.get(currentChat.id);
-    if (!sharedKey) {
-        alert('Ключ шифрования не найден');
-        return;
-    }
+    if (!sharedKey) { alert('Ключ шифрования не найден'); return; }
     
     const fileId = `${Date.now()}_${file.name}`;
     const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
@@ -794,7 +790,6 @@ async function sendEncryptedFile(file) {
         const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
         files[fileId] = encryptedFile;
         localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
-        
         await saveMessage({
             id: Date.now(),
             senderId: currentUser.id,
@@ -827,11 +822,7 @@ function loadMessages() {
     if (messagesListener) messagesListener();
     
     const messagesRef = collection(db, 'messages');
-    const q = query(
-        messagesRef,
-        where('participants', 'array-contains', currentUser.id),
-        orderBy('timestamp', 'asc')
-    );
+    const q = query(messagesRef, where('participants', 'array-contains', currentUser.id), orderBy('timestamp', 'asc'));
     
     messagesListener = onSnapshot(q, (snapshot) => {
         const relevantMessages = [];
@@ -839,13 +830,9 @@ function loadMessages() {
             const message = doc.data();
             if ((message.senderId === currentUser.id && message.receiverId === currentChat.id) ||
                 (message.senderId === currentChat.id && message.receiverId === currentUser.id)) {
-                relevantMessages.push({
-                    id: doc.id,
-                    ...message
-                });
+                relevantMessages.push({ id: doc.id, ...message });
             }
         });
-        
         renderMessages(relevantMessages);
     });
 }
@@ -853,29 +840,21 @@ function loadMessages() {
 function renderMessages(messages) {
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
-        
         if (msg.type === 'text') {
-            return `
-                <div class="message ${isSent ? 'sent' : 'received'}">
-                    <div>${escapeHtml(msg.content)}</div>
-                    <div class="message-time">
-                        ${formatTime(msg.timestamp)}
-                        <span class="encrypted-badge">🔒</span>
-                    </div>
-                </div>
-            `;
+            return `<div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${escapeHtml(msg.content)}</div>
+                        <div class="message-time">${formatTime(msg.timestamp)}<span class="encrypted-badge">🔒</span></div>
+                    </div>`;
         } else if (msg.type === 'file') {
-            return `
-                <div class="message ${isSent ? 'sent' : 'received'}">
-                    <div class="message-file" data-file-id="${msg.content}">
-                        <span>📎</span>
-                        <span>${escapeHtml(msg.fileName)}</span>
-                        <span>(${formatFileSize(msg.fileSize)})</span>
-                        <span class="encrypted-badge">🔒</span>
-                    </div>
-                    <div class="message-time">${formatTime(msg.timestamp)}</div>
-                </div>
-            `;
+            return `<div class="message ${isSent ? 'sent' : 'received'}">
+                        <div class="message-file" data-file-id="${msg.content}">
+                            <span>📎</span>
+                            <span>${escapeHtml(msg.fileName)}</span>
+                            <span>(${formatFileSize(msg.fileSize)})</span>
+                            <span class="encrypted-badge">🔒</span>
+                        </div>
+                        <div class="message-time">${formatTime(msg.timestamp)}</div>
+                    </div>`;
         }
         return '';
     }).join('');
@@ -892,10 +871,7 @@ function renderMessages(messages) {
 
 async function downloadAndDecryptFile(fileId) {
     const sharedKey = userKeys.get(currentChat.id);
-    if (!sharedKey) {
-        alert('Ключ шифрования не найден');
-        return;
-    }
+    if (!sharedKey) { alert('Ключ шифрования не найден'); return; }
     
     const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
     const encryptedFile = files[fileId];
@@ -924,8 +900,9 @@ function selectChat(user) {
     currentChat = user;
     chatUsername.textContent = user.username;
     chatCodeSpan.textContent = `🔑 ${user.userCode || '---'}`;
+    chatCodeSpan.onclick = () => user.userCode && copyToClipboard(user.userCode);
     chatStatus.textContent = user.status === 'online' ? 'В сети' : 'Не в сети';
-    chatStatus.className = user.status === 'online' ? 'chat-status' : 'chat-status offline';
+    chatStatus.className = user.status === 'online' ? 'chat-status online' : 'chat-status';
     
     const isOnline = user.status === 'online';
     messageInput.disabled = !isOnline;
@@ -947,8 +924,8 @@ function renderUsersList() {
         <div class="user-item" data-user-id="${user.id}">
             <div class="user-avatar">${user.username[0].toUpperCase()}</div>
             <div class="user-name">
-                ${escapeHtml(user.username)}
-                <div style="font-size: 10px; color: #666; font-family: monospace;">${user.userCode || '---'}</div>
+                <div>${escapeHtml(user.username)}</div>
+                <div onclick="event.stopPropagation(); window.copyToClipboard('${user.userCode}')">🔑 ${user.userCode || '---'}</div>
             </div>
             <div class="user-status ${user.status === 'online' ? '' : 'offline'}"></div>
         </div>
@@ -958,9 +935,7 @@ function renderUsersList() {
         item.addEventListener('click', () => {
             const userId = item.dataset.userId;
             const user = users.get(userId);
-            if (user) {
-                selectChat(user);
-            }
+            if (user) selectChat(user);
         });
     });
 }
@@ -973,23 +948,13 @@ videoCallBtn.addEventListener('click', () => startCall(true));
 
 async function startCall(isVideo) {
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: isVideo,
-            audio: true
-        });
-        
+        localStream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
         localVideo.srcObject = localStream;
         
         const peerConnection = peerConnections.get(currentChat.id);
-        if (!peerConnection) {
-            alert('Нет P2P соединения');
-            return;
-        }
+        if (!peerConnection) { alert('Нет P2P соединения'); return; }
         
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
-        
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
         peerConnection.ontrack = (event) => {
             remoteStream = event.streams[0];
             remoteVideo.srcObject = remoteStream;
@@ -997,7 +962,6 @@ async function startCall(isVideo) {
         
         callPanel.classList.remove('hidden');
         currentCall = { peerConnection, isVideo };
-        
     } catch (error) {
         console.error('Ошибка звонка:', error);
         alert('Не удалось начать звонок. Проверьте разрешения для камеры и микрофона.');
@@ -1006,9 +970,7 @@ async function startCall(isVideo) {
 
 endCallBtn.addEventListener('click', () => {
     if (currentCall) {
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-        }
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
         callPanel.classList.add('hidden');
         currentCall = null;
         localStream = null;
@@ -1044,13 +1006,11 @@ function setupRealtimeUsers() {
                 users.set(doc.id, user);
             }
         });
-        
         renderUsersList();
-        
         if (currentChat && users.has(currentChat.id)) {
             const updatedUser = users.get(currentChat.id);
             chatStatus.textContent = updatedUser.status === 'online' ? 'В сети' : 'Не в сети';
-            chatStatus.className = updatedUser.status === 'online' ? 'chat-status' : 'chat-status offline';
+            chatStatus.className = updatedUser.status === 'online' ? 'chat-status online' : 'chat-status';
             const isOnline = updatedUser.status === 'online';
             messageInput.disabled = !isOnline;
             sendBtn.disabled = !isOnline;
@@ -1060,4 +1020,5 @@ function setupRealtimeUsers() {
     });
 }
 
+window.copyToClipboard = copyToClipboard;
 console.log('✅ Flux Messenger загружен! Используйте 12-значные коды для поиска пользователей.');
