@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Flux Messenger - P2P мессенджер</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Экран входа -->
+        <div id="auth-screen" class="screen active">
+            <div class="container">
+                <div class="logo">
+                    <div class="logo-icon">⚡</div>
+                    <h1>Flux Messenger</h1>
+                    <p>P2P зашифрованный мессенджер</p>
+                </div>
+                <div class="auth-form">
+                    <input type="text" id="username" placeholder="Имя пользователя" autocomplete="off">
+                    <input type="password" id="password" placeholder="Пароль">
+                    <button id="login-btn" class="btn-primary">Войти</button>
+                    <button id="register-btn" class="btn-secondary">Зарегистрироваться</button>
+                </div>
+                <div id="auth-error" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Основной экран мессенджера -->
+        <div id="messenger-screen" class="screen">
+            <div class="messenger-container">
+                <!-- Боковая панель -->
+                <div class="sidebar">
+                    <div class="user-info">
+                        <div class="avatar" id="user-avatar">👤</div>
+                        <div class="user-details">
+                            <div class="username" id="current-user"></div>
+                            <div class="status" id="user-status">Офлайн</div>
+                        </div>
+                        <button id="logout-btn" class="icon-btn">🚪</button>
+                    </div>
+                    <div class="search-box">
+                        <input type="text" id="search-users" placeholder="Поиск пользователей...">
+                    </div>
+                    <div class="users-list" id="users-list">
+                        <!-- Список пользователей будет здесь -->
+                    </div>
+                </div>
+
+                <!-- Основная область чата -->
+                <div class="chat-area">
+                    <div class="chat-header" id="chat-header">
+                        <div class="chat-user-info">
+                            <div class="chat-avatar">👤</div>
+                            <div class="chat-user-details">
+                                <div class="chat-username" id="chat-username">Выберите чат</div>
+                                <div class="chat-status" id="chat-status">Не в сети</div>
+                            </div>
+                        </div>
+                        <div class="call-controls">
+                            <button id="audio-call-btn" class="icon-btn" disabled>🎤</button>
+                            <button id="video-call-btn" class="icon-btn" disabled>📹</button>
+                        </div>
+                    </div>
+                    
+                    <div class="messages-container" id="messages-container">
+                        <div class="messages" id="messages">
+                            <!-- Сообщения будут здесь -->
+                        </div>
+                    </div>
+                    
+                    <div class="input-area">
+                        <button id="file-btn" class="icon-btn">📎</button>
+                        <input type="text" id="message-input" placeholder="Введите сообщение..." disabled>
+                        <button id="send-btn" class="btn-send" disabled>📨</button>
+                    </div>
+                </div>
+
+                <!-- Панель звонка -->
+                <div id="call-panel" class="call-panel hidden">
+                    <div class="call-container">
+                        <div class="local-video-container">
+                            <video id="local-video" autoplay muted playsinline></video>
+                        </div>
+                        <div class="remote-video-container">
+                            <video id="remote-video" autoplay playsinline></video>
+                        </div>
+                        <div class="call-controls-panel">
+                            <button id="mute-audio-btn" class="call-btn">🎤</button>
+                            <button id="mute-video-btn" class="call-btn">📹</button>
+                            <button id="end-call-btn" class="call-btn end-call">🔴</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
