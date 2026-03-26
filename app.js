@@ -3,12 +3,12 @@ import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc
 
 // Firebase конфигурация
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
+  authDomain: "flux-a1396.firebaseapp.com",
+  projectId: "flux-a1396",
+  storageBucket: "flux-a1396.firebasestorage.app",
+  messagingSenderId: "670873031130",
+  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
 };
 
 const app = initializeApp(firebaseConfig);
