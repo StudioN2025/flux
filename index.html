@@ -35,14 +35,18 @@
                         <div class="avatar" id="user-avatar">👤</div>
                         <div class="user-details">
                             <div class="username" id="current-user"></div>
-                            <div class="user-code" id="user-code" style="font-size: 11px; color: #666; cursor: pointer;" title="Нажмите чтобы скопировать"></div>
+                            <div class="user-code-container">
+                                <span class="user-code-label">🔑 Ваш код:</span>
+                                <span class="user-code" id="user-code"></span>
+                                <button class="copy-code-btn" id="copy-code-btn" title="Скопировать код">📋</button>
+                            </div>
                             <div class="status" id="user-status">Офлайн</div>
                         </div>
                         <button id="logout-btn" class="icon-btn">🚪</button>
                     </div>
                     <div class="search-box">
-                        <input type="text" id="search-users" placeholder="Поиск по имени или 12-значному коду...">
-                        <button id="search-by-code-btn" class="icon-btn" style="position: absolute; right: 20px; top: 15px;">🔍</button>
+                        <input type="text" id="search-users" placeholder="Поиск по имени или коду...">
+                        <button id="search-by-code-btn" class="search-code-btn" title="Поиск по коду">🔍</button>
                     </div>
                     <div class="users-list" id="users-list">
                         <!-- Список пользователей будет здесь -->
@@ -56,7 +60,7 @@
                             <div class="chat-avatar">👤</div>
                             <div class="chat-user-details">
                                 <div class="chat-username" id="chat-username">Выберите чат</div>
-                                <div class="chat-code" id="chat-code" style="font-size: 10px; color: #999;"></div>
+                                <div class="chat-code" id="chat-code"></div>
                                 <div class="chat-status" id="chat-status">Не в сети</div>
                             </div>
                         </div>
@@ -102,8 +106,8 @@
     <!-- Модальное окно для поиска по коду -->
     <div id="code-search-modal" class="modal hidden">
         <div class="modal-content">
-            <h3>Поиск по коду</h3>
-            <input type="text" id="code-input" placeholder="Введите 12-значный код" maxlength="12">
+            <h3>🔍 Поиск по коду</h3>
+            <input type="text" id="code-input" placeholder="Введите 12-значный код" maxlength="14" autocomplete="off">
             <div class="modal-buttons">
                 <button id="modal-search-btn" class="btn-primary">Найти</button>
                 <button id="modal-close-btn" class="btn-secondary">Закрыть</button>
@@ -112,73 +116,123 @@
         </div>
     </div>
 
+    <!-- Уведомление о копировании -->
+    <div id="copy-toast" class="toast hidden">
+        ✅ Код скопирован!
+    </div>
+
     <style>
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
+        .user-code-container {
             display: flex;
             align-items: center;
-            justify-content: center;
-            z-index: 2000;
+            gap: 5px;
+            margin: 5px 0;
+            flex-wrap: wrap;
         }
-        .modal.hidden {
+        
+        .user-code-label {
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .user-code {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            color: #667eea;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .user-code:hover {
+            background: #e0e0e0;
+            transform: scale(1.02);
+        }
+        
+        .copy-code-btn {
+            background: none;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.3s;
+            color: #666;
+        }
+        
+        .copy-code-btn:hover {
+            background: #e0e0e0;
+            transform: scale(1.05);
+        }
+        
+        .copy-code-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 14px;
+            z-index: 3000;
+            animation: slideUp 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        .toast.hidden {
             display: none;
         }
-        .modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            width: 90%;
-            max-width: 400px;
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
         }
-        .modal-content h3 {
-            margin-bottom: 20px;
+        
+        .chat-code {
+            font-size: 10px;
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 2px;
+            letter-spacing: 0.5px;
         }
-        .modal-content input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-            margin-bottom: 15px;
-            text-align: center;
-            letter-spacing: 2px;
-        }
-        .modal-buttons {
-            display: flex;
-            gap: 10px;
-        }
-        .modal-buttons button {
-            flex: 1;
-        }
-        .user-code {
-            font-family: monospace;
-            font-size: 11px;
-            color: #666;
-            cursor: pointer;
-            padding: 2px 5px;
-            border-radius: 4px;
-            transition: background 0.3s;
-        }
-        .user-code:hover {
-            background: #f0f0f0;
-        }
-        .search-box {
-            position: relative;
-        }
-        .search-box button {
+        
+        .search-code-btn {
             position: absolute;
-            right: 10px;
+            right: 25px;
             top: 50%;
             transform: translateY(-50%);
             background: none;
             border: none;
             font-size: 18px;
             cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: background 0.3s;
+        }
+        
+        .search-code-btn:hover {
+            background: #f0f0f0;
+        }
+        
+        .modal-content input {
+            text-transform: uppercase;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
         }
     </style>
 
