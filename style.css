@@ -153,6 +153,7 @@ body {
     justify-content: center;
     font-size: 24px;
     color: white;
+    flex-shrink: 0;
 }
 
 .user-details {
@@ -163,31 +164,69 @@ body {
 .username {
     font-weight: bold;
     font-size: 16px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.user-code {
-    font-family: 'Courier New', monospace;
+.user-code-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+    flex-wrap: wrap;
+}
+
+.user-code-label {
     font-size: 10px;
+    color: #888;
+}
+
+.user-code {
+    font-family: 'Courier New', 'Monaco', monospace;
+    font-size: 11px;
+    font-weight: 600;
     color: #667eea;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
     background: #f0f0f0;
-    display: inline-block;
-    transition: background 0.3s;
+    padding: 3px 8px;
+    border-radius: 6px;
     letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: all;
 }
 
 .user-code:hover {
-    background: #e0e0e0;
+    background: #e3f2fd;
+    transform: scale(1.02);
 }
 
 .user-code:active {
-    transform: scale(0.95);
+    transform: scale(0.98);
+}
+
+.copy-code-btn {
+    background: none;
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+    color: #666;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.copy-code-btn:hover {
+    background: #e0e0e0;
+    transform: scale(1.02);
+}
+
+.copy-code-btn:active {
+    transform: scale(0.98);
 }
 
 .status {
@@ -213,14 +252,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
-.icon-btn:hover {
+.icon-btn:hover:not(:disabled) {
     background: #f0f0f0;
     transform: scale(1.05);
 }
 
-.icon-btn:active {
+.icon-btn:active:not(:disabled) {
     transform: scale(0.95);
 }
 
@@ -238,7 +278,7 @@ body {
 
 .search-box input {
     width: 100%;
-    padding: 10px 35px 10px 12px;
+    padding: 10px 40px 10px 12px;
     border: 1px solid #ddd;
     border-radius: 8px;
     font-size: 14px;
@@ -250,7 +290,7 @@ body {
     border-color: #667eea;
 }
 
-.search-box .search-code-btn {
+.search-code-btn {
     position: absolute;
     right: 25px;
     top: 50%;
@@ -262,10 +302,14 @@ body {
     padding: 5px;
     border-radius: 50%;
     transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.search-box .search-code-btn:hover {
+.search-code-btn:hover {
     background: #f0f0f0;
+    transform: translateY(-50%) scale(1.05);
 }
 
 /* Users list */
@@ -308,17 +352,29 @@ body {
 
 .user-name {
     flex: 1;
-    font-weight: 500;
     font-size: 14px;
     overflow: hidden;
 }
 
-.user-name div {
+.user-name div:first-child {
+    font-weight: 500;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-name div:last-child {
     font-size: 10px;
-    color: #666;
+    color: #667eea;
     font-family: 'Courier New', monospace;
-    margin-top: 2px;
-    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.user-name div:last-child:hover {
+    opacity: 0.7;
+    text-decoration: underline;
 }
 
 .user-status {
@@ -389,8 +445,15 @@ body {
     font-size: 10px;
     color: #667eea;
     font-family: 'Courier New', monospace;
-    margin-bottom: 2px;
+    margin: 2px 0;
     letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.chat-code:hover {
+    opacity: 0.8;
+    text-decoration: underline;
 }
 
 .chat-status {
@@ -527,6 +590,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .btn-send:hover:not(:disabled) {
@@ -699,6 +763,7 @@ body {
     letter-spacing: 2px;
     font-family: 'Courier New', monospace;
     transition: border-color 0.3s;
+    text-transform: uppercase;
 }
 
 .modal-content input:focus {
@@ -715,6 +780,40 @@ body {
     flex: 1;
     padding: 12px;
     font-size: 14px;
+}
+
+/* Toast notification */
+.toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(10px);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 50px;
+    font-size: 14px;
+    z-index: 3000;
+    animation: toastSlideUp 0.3s ease;
+    white-space: nowrap;
+    font-weight: 500;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.toast.hidden {
+    display: none;
+}
+
+@keyframes toastSlideUp {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 }
 
 /* Scrollbar */
@@ -779,6 +878,20 @@ body {
         font-size: 20px;
     }
     
+    .user-code-container {
+        gap: 4px;
+    }
+    
+    .user-code {
+        font-size: 9px;
+        padding: 2px 5px;
+    }
+    
+    .copy-code-btn {
+        font-size: 10px;
+        padding: 3px 6px;
+    }
+    
     .chat-header {
         padding: 12px 15px;
     }
@@ -790,11 +903,25 @@ body {
     .input-area {
         padding: 12px 15px;
     }
+    
+    .toast {
+        padding: 8px 16px;
+        font-size: 12px;
+        bottom: 20px;
+    }
 }
 
 @media (max-width: 480px) {
     .sidebar {
         width: 260px;
+    }
+    
+    .user-code-label {
+        display: none;
+    }
+    
+    .user-code {
+        font-size: 8px;
     }
     
     .user-name {
@@ -827,68 +954,7 @@ body {
     100% { transform: rotate(360deg); }
 }
 
-/* Tooltip */
-.tooltip {
-    position: relative;
-    display: inline-block;
-}
-
-.tooltip .tooltip-text {
-    visibility: hidden;
-    background-color: #333;
-    color: #fff;
-    text-align: center;
-    padding: 5px 10px;
-    border-radius: 6px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    font-size: 12px;
-    opacity: 0;
-    transition: opacity 0.3s;
-}
-
-.tooltip:hover .tooltip-text {
-    visibility: visible;
-    opacity: 1;
-}
-
-/* Notification badge */
-.notification-badge {
-    position: relative;
-}
-
-.notification-badge::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    width: 10px;
-    height: 10px;
-    background: #ff4444;
-    border-radius: 50%;
-    animation: pulse 1s infinite;
-}
-
-/* File upload indicator */
-.file-uploading {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.8);
-    color: white;
-    padding: 10px 20px;
-    border-radius: 25px;
-    font-size: 14px;
-    z-index: 1500;
-    animation: fadeIn 0.3s ease;
-}
-
-/* Status indicators */
+/* Online indicator animation */
 .online-dot {
     display: inline-block;
     width: 8px;
