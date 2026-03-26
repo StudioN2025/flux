@@ -3,16 +3,37 @@ import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
-  authDomain: "flux-a1396.firebaseapp.com",
-  projectId: "flux-a1396",
-  storageBucket: "flux-a1396.firebasestorage.app",
-  messagingSenderId: "670873031130",
-  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
+    apiKey: "AIzaSyB...",
+    authDomain: "your-project.firebaseapp.com",
+    projectId: "your-project",
+    storageBucket: "your-project.appspot.com",
+    messagingSenderId: "123456789",
+    appId: "1:123456789:web:abcdef"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+
+// ============= ГЕНЕРАЦИЯ 12-ЗНАЧНОГО КОДА =============
+function generateUserCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 12; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+        if (i === 3 || i === 7) code += '-';
+    }
+    return code;
+}
+
+function formatUserCode(code) {
+    if (!code) return '';
+    const clean = code.replace(/-/g, '');
+    return `${clean.slice(0, 4)}-${clean.slice(4, 8)}-${clean.slice(8, 12)}`;
+}
+
+function normalizeCode(code) {
+    return code.toUpperCase().replace(/-/g, '');
+}
 
 // ============= КРИПТОГРАФИЧЕСКИЕ ФУНКЦИИ =============
 class CryptoManager {
@@ -181,6 +202,7 @@ const loginBtn = document.getElementById('login-btn');
 const registerBtn = document.getElementById('register-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const currentUserSpan = document.getElementById('current-user');
+const userCodeSpan = document.getElementById('user-code');
 const usersList = document.getElementById('users-list');
 const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
@@ -188,6 +210,7 @@ const sendBtn = document.getElementById('send-btn');
 const fileBtn = document.getElementById('file-btn');
 const searchUsers = document.getElementById('search-users');
 const chatUsername = document.getElementById('chat-username');
+const chatCodeSpan = document.getElementById('chat-code');
 const chatStatus = document.getElementById('chat-status');
 const audioCallBtn = document.getElementById('audio-call-btn');
 const videoCallBtn = document.getElementById('video-call-btn');
@@ -198,6 +221,13 @@ const endCallBtn = document.getElementById('end-call-btn');
 const muteAudioBtn = document.getElementById('mute-audio-btn');
 const muteVideoBtn = document.getElementById('mute-video-btn');
 const authError = document.getElementById('auth-error');
+
+// Модальное окно поиска
+const modal = document.getElementById('code-search-modal');
+const codeInput = document.getElementById('code-input');
+const modalSearchBtn = document.getElementById('modal-search-btn');
+const modalCloseBtn = document.getElementById('modal-close-btn');
+const modalError = document.getElementById('modal-error');
 
 // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function escapeHtml(text) {
@@ -244,6 +274,24 @@ async function hashPassword(password, salt) {
     return Array.from(new Uint8Array(hash));
 }
 
+// Генерация уникального кода
+async function generateUniqueCode() {
+    let attempts = 0;
+    let code;
+    let exists = true;
+    
+    while (exists && attempts < 10) {
+        code = generateUserCode();
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('userCode', '==', normalizeCode(code)));
+        const querySnapshot = await getDocs(q);
+        exists = !querySnapshot.empty;
+        attempts++;
+    }
+    
+    return code;
+}
+
 // ============= УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ =============
 registerBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
@@ -251,6 +299,11 @@ registerBtn.addEventListener('click', async () => {
     
     if (!username || !password) {
         authError.textContent = 'Заполните все поля';
+        return;
+    }
+    
+    if (username.length < 3) {
+        authError.textContent = 'Имя должно содержать минимум 3 символа';
         return;
     }
     
@@ -266,22 +319,25 @@ registerBtn.addEventListener('click', async () => {
         
         const salt = cryptoManager.generateSalt();
         const passwordHash = await hashPassword(password, salt);
+        const userCode = await generateUniqueCode();
         
         await addDoc(usersRef, {
             username: username,
             passwordHash: passwordHash,
             salt: Array.from(salt),
+            userCode: normalizeCode(userCode),
+            formattedCode: userCode,
             status: 'online',
             createdAt: serverTimestamp()
         });
         
-        authError.textContent = 'Регистрация успешна! Теперь войдите.';
+        authError.textContent = `Регистрация успешна! Ваш код: ${userCode} Сохраните его!`;
         authError.style.color = '#4caf50';
         
         setTimeout(() => {
             authError.textContent = '';
             authError.style.color = '#ff4444';
-        }, 3000);
+        }, 5000);
         
     } catch (error) {
         console.error('Ошибка регистрации:', error);
@@ -321,7 +377,8 @@ loginBtn.addEventListener('click', async () => {
         currentUser = {
             id: userDoc.id,
             username: username,
-            password: password
+            password: password,
+            userCode: userData.formattedCode || formatUserCode(userData.userCode)
         };
         
         const userDocRef = doc(db, 'users', currentUser.id);
@@ -331,6 +388,12 @@ loginBtn.addEventListener('click', async () => {
         });
         
         currentUserSpan.textContent = username;
+        userCodeSpan.textContent = `🔑 ${currentUser.userCode}`;
+        userCodeSpan.onclick = () => {
+            navigator.clipboard.writeText(currentUser.userCode);
+            alert('Код скопирован!');
+        };
+        
         authScreen.classList.remove('active');
         messengerScreen.classList.add('active');
         
@@ -378,6 +441,79 @@ logoutBtn.addEventListener('click', async () => {
     passwordInput.value = '';
 });
 
+// ============= ПОИСК ПОЛЬЗОВАТЕЛЕЙ =============
+async function searchUsersByCode(code) {
+    const normalizedCode = normalizeCode(code);
+    
+    try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('userCode', '==', normalizedCode));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+            return null;
+        }
+        
+        const userDoc = querySnapshot.docs[0];
+        const userData = userDoc.data();
+        
+        if (userDoc.id === currentUser.id) {
+            return null;
+        }
+        
+        return {
+            id: userDoc.id,
+            username: userData.username,
+            status: userData.status,
+            userCode: userData.formattedCode || formatUserCode(userData.userCode)
+        };
+    } catch (error) {
+        console.error('Ошибка поиска:', error);
+        return null;
+    }
+}
+
+// Открытие модального окна
+document.getElementById('search-by-code-btn')?.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    codeInput.value = '';
+    modalError.textContent = '';
+    codeInput.focus();
+});
+
+modalCloseBtn.addEventListener('click', () => {
+    modal.classList.add('hidden');
+});
+
+modalSearchBtn.addEventListener('click', async () => {
+    const code = codeInput.value.trim();
+    if (!code) {
+        modalError.textContent = 'Введите код';
+        return;
+    }
+    
+    const user = await searchUsersByCode(code);
+    
+    if (user) {
+        modal.classList.add('hidden');
+        if (!users.has(user.id)) {
+            users.set(user.id, user);
+            await generateSharedKey(user.id);
+            await establishPeerConnection(user.id);
+            renderUsersList();
+        }
+        selectChat(user);
+    } else {
+        modalError.textContent = 'Пользователь с таким кодом не найден';
+    }
+});
+
+codeInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        modalSearchBtn.click();
+    }
+});
+
 // ============= ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ =============
 async function loadUsers() {
     const usersRef = collection(db, 'users');
@@ -390,7 +526,8 @@ async function loadUsers() {
             users.set(doc.id, {
                 id: doc.id,
                 username: user.username,
-                status: user.status
+                status: user.status,
+                userCode: user.formattedCode || formatUserCode(user.userCode)
             });
             
             await generateSharedKey(doc.id);
@@ -433,10 +570,6 @@ async function establishPeerConnection(userId) {
         await handleEncryptedData(encryptedData, userId);
     };
     
-    dataChannel.onerror = (error) => {
-        console.error('Data channel error:', error);
-    };
-    
     peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
             try {
@@ -462,14 +595,6 @@ async function establishPeerConnection(userId) {
             const encryptedData = JSON.parse(event.data);
             await handleEncryptedData(encryptedData, userId);
         };
-    };
-    
-    peerConnection.onconnectionstatechange = () => {
-        console.log(`Connection state with ${userId}: ${peerConnection.connectionState}`);
-        if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
-            peerConnections.delete(userId);
-            dataChannels.delete(userId);
-        }
     };
     
     try {
@@ -587,16 +712,10 @@ async function handleEncryptedData(encryptedData, fromUserId) {
 
 async function sendEncryptedData(userId, data) {
     const sharedKey = userKeys.get(userId);
-    if (!sharedKey) {
-        console.warn('Ключ шифрования не найден');
-        return false;
-    }
+    if (!sharedKey) return false;
     
     const dataChannel = dataChannels.get(userId);
-    if (!dataChannel || dataChannel.readyState !== 'open') {
-        console.warn('Data channel не открыт');
-        return false;
-    }
+    if (!dataChannel || dataChannel.readyState !== 'open') return false;
     
     try {
         const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
@@ -804,6 +923,7 @@ async function downloadAndDecryptFile(fileId) {
 function selectChat(user) {
     currentChat = user;
     chatUsername.textContent = user.username;
+    chatCodeSpan.textContent = `🔑 ${user.userCode || '---'}`;
     chatStatus.textContent = user.status === 'online' ? 'В сети' : 'Не в сети';
     chatStatus.className = user.status === 'online' ? 'chat-status' : 'chat-status offline';
     
@@ -819,13 +939,17 @@ function selectChat(user) {
 function renderUsersList() {
     const searchTerm = searchUsers.value.toLowerCase();
     const filteredUsers = Array.from(users.values()).filter(user => 
-        user.username.toLowerCase().includes(searchTerm)
+        user.username.toLowerCase().includes(searchTerm) || 
+        (user.userCode && user.userCode.toLowerCase().includes(searchTerm))
     );
     
     usersList.innerHTML = filteredUsers.map(user => `
         <div class="user-item" data-user-id="${user.id}">
             <div class="user-avatar">${user.username[0].toUpperCase()}</div>
-            <div class="user-name">${escapeHtml(user.username)}</div>
+            <div class="user-name">
+                ${escapeHtml(user.username)}
+                <div style="font-size: 10px; color: #666; font-family: monospace;">${user.userCode || '---'}</div>
+            </div>
             <div class="user-status ${user.status === 'online' ? '' : 'offline'}"></div>
         </div>
     `).join('');
@@ -936,4 +1060,4 @@ function setupRealtimeUsers() {
     });
 }
 
-console.log('✅ Flux Messenger загружен и готов к работе!');
+console.log('✅ Flux Messenger загружен! Используйте 12-значные коды для поиска пользователей.');
