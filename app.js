@@ -1,8 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc, setDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
-// Firebase конфигурация - замените на свои данные
+// Firebase конфигурация
 const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "YOUR_AUTH_DOMAIN",
@@ -12,10 +11,163 @@ const firebaseConfig = {
     appId: "YOUR_APP_ID"
 };
 
-// Инициализация Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
+
+// Криптографические функции
+class CryptoManager {
+    constructor() {
+        this.encoder = new TextEncoder();
+        this.decoder = new TextDecoder();
+    }
+    
+    // Генерация ключа из пароля
+    async deriveKey(password, salt) {
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw',
+            this.encoder.encode(password),
+            'PBKDF2',
+            false,
+            ['deriveKey']
+        );
+        
+        return await crypto.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 100000,
+                hash: 'SHA-256'
+            },
+            keyMaterial,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
+    
+    // Генерация случайного соли
+    generateSalt() {
+        return crypto.getRandomValues(new Uint8Array(16));
+    }
+    
+    // Генерация случайного IV
+    generateIV() {
+        return crypto.getRandomValues(new Uint8Array(12));
+    }
+    
+    // Шифрование текста
+    async encryptText(text, key) {
+        const iv = this.generateIV();
+        const encodedData = this.encoder.encode(text);
+        
+        const encryptedData = await crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            encodedData
+        );
+        
+        return {
+            data: Array.from(new Uint8Array(encryptedData)),
+            iv: Array.from(iv)
+        };
+    }
+    
+    // Дешифрование текста
+    async decryptText(encryptedObj, key) {
+        const iv = new Uint8Array(encryptedObj.iv);
+        const data = new Uint8Array(encryptedObj.data);
+        
+        const decryptedData = await crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            data
+        );
+        
+        return this.decoder.decode(decryptedData);
+    }
+    
+    // Шифрование файла в текст (base64)
+    async encryptFileToText(file, key) {
+        const iv = this.generateIV();
+        const fileBuffer = await file.arrayBuffer();
+        
+        const encryptedData = await crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            fileBuffer
+        );
+        
+        // Конвертируем в base64 для передачи как текст
+        const base64Data = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
+        
+        return {
+            data: base64Data,
+            iv: Array.from(iv),
+            name: file.name,
+            type: file.type,
+            size: file.size
+        };
+    }
+    
+    // Дешифрование файла из текста
+    async decryptFileFromText(encryptedObj, key) {
+        const iv = new Uint8Array(encryptedObj.iv);
+        const encryptedData = Uint8Array.from(atob(encryptedObj.data), c => c.charCodeAt(0));
+        
+        const decryptedData = await crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            encryptedData
+        );
+        
+        return {
+            data: decryptedData,
+            name: encryptedObj.name,
+            type: encryptedObj.type,
+            size: encryptedObj.size
+        };
+    }
+    
+    // Создание общего ключа для чата (на основе паролей пользователей)
+    async createSharedKey(userPassword, otherUserPassword, salt) {
+        const userKey = await this.deriveKey(userPassword, salt);
+        const otherKey = await this.deriveKey(otherUserPassword, salt);
+        
+        // Комбинируем ключи для создания общего ключа
+        const combinedKey = await crypto.subtle.deriveKey(
+            {
+                name: 'HKDF',
+                hash: 'SHA-256',
+                salt: salt,
+                info: this.encoder.encode('flux-chat-key')
+            },
+            await crypto.subtle.importKey(
+                'raw',
+                await crypto.subtle.exportKey('raw', userKey),
+                { name: 'HKDF' },
+                false,
+                ['deriveKey']
+            ),
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+        
+        return combinedKey;
+    }
+}
 
 // Состояние приложения
 let currentUser = null;
@@ -23,17 +175,12 @@ let currentChat = null;
 let users = new Map();
 let messagesListener = null;
 let peerConnections = new Map();
+let dataChannels = new Map();
 let localStream = null;
 let remoteStream = null;
 let currentCall = null;
-
-// WebRTC конфигурация
-const configuration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-};
+let cryptoManager = new CryptoManager();
+let userKeys = new Map(); // Хранилище ключей для каждого чата
 
 // DOM элементы
 const authScreen = document.getElementById('auth-screen');
@@ -62,7 +209,15 @@ const muteAudioBtn = document.getElementById('mute-audio-btn');
 const muteVideoBtn = document.getElementById('mute-video-btn');
 const authError = document.getElementById('auth-error');
 
-// Регистрация пользователя
+// WebRTC конфигурация
+const configuration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+};
+
+// Регистрация пользователя с сохранением пароля
 registerBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
@@ -82,9 +237,14 @@ registerBtn.addEventListener('click', async () => {
             return;
         }
         
-        await addDoc(usersRef, {
+        // Создаем соль для пользователя
+        const salt = cryptoManager.generateSalt();
+        
+        // Сохраняем пользователя с зашифрованным паролем
+        const userRef = await addDoc(usersRef, {
             username: username,
-            password: password,
+            passwordHash: await hashPassword(password, salt),
+            salt: Array.from(salt),
             status: 'online',
             createdAt: serverTimestamp()
         });
@@ -103,6 +263,31 @@ registerBtn.addEventListener('click', async () => {
     }
 });
 
+// Хеширование пароля
+async function hashPassword(password, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(password),
+        'PBKDF2',
+        false,
+        ['deriveBits']
+    );
+    
+    const hash = await crypto.subtle.deriveBits(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        256
+    );
+    
+    return Array.from(new Uint8Array(hash));
+}
+
 // Вход в систему
 loginBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
@@ -115,22 +300,34 @@ loginBtn.addEventListener('click', async () => {
     
     try {
         const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('username', '==', username), where('password', '==', password));
+        const q = query(usersRef, where('username', '==', username));
         const querySnapshot = await getDocs(q);
         
         if (querySnapshot.empty) {
-            authError.textContent = 'Неверное имя пользователя или пароль';
+            authError.textContent = 'Пользователь не найден';
+            return;
+        }
+        
+        const userDoc = querySnapshot.docs[0];
+        const userData = userDoc.data();
+        const salt = new Uint8Array(userData.salt);
+        
+        // Проверяем пароль
+        const passwordHash = await hashPassword(password, salt);
+        if (JSON.stringify(passwordHash) !== JSON.stringify(userData.passwordHash)) {
+            authError.textContent = 'Неверный пароль';
             return;
         }
         
         currentUser = {
-            id: querySnapshot.docs[0].id,
-            username: username
+            id: userDoc.id,
+            username: username,
+            password: password // Сохраняем для генерации ключей
         };
         
-        // Обновляем статус пользователя
-        const userDoc = doc(db, 'users', currentUser.id);
-        await updateDoc(userDoc, {
+        // Обновляем статус
+        const userDocRef = doc(db, 'users', currentUser.id);
+        await updateDoc(userDocRef, {
             status: 'online',
             lastSeen: serverTimestamp()
         });
@@ -141,6 +338,7 @@ loginBtn.addEventListener('click', async () => {
         
         loadUsers();
         setupRealtimeUsers();
+        setupDataChannelSignaling();
         
     } catch (error) {
         console.error('Ошибка входа:', error);
@@ -156,6 +354,13 @@ logoutBtn.addEventListener('click', async () => {
             status: 'offline',
             lastSeen: serverTimestamp()
         });
+        
+        for (const [userId, pc] of peerConnections) {
+            pc.close();
+        }
+        peerConnections.clear();
+        dataChannels.clear();
+        userKeys.clear();
     }
     
     currentUser = null;
@@ -174,7 +379,7 @@ async function loadUsers() {
     const querySnapshot = await getDocs(usersRef);
     
     users.clear();
-    querySnapshot.forEach(doc => {
+    for (const doc of querySnapshot.docs) {
         const user = doc.data();
         if (doc.id !== currentUser.id) {
             users.set(doc.id, {
@@ -182,52 +387,241 @@ async function loadUsers() {
                 username: user.username,
                 status: user.status
             });
+            
+            // Генерируем общий ключ для чата
+            await generateSharedKey(doc.id);
+            await establishPeerConnection(doc.id);
         }
-    });
+    }
     
     renderUsersList();
 }
 
-// Отображение списка пользователей
-function renderUsersList() {
-    const searchTerm = searchUsers.value.toLowerCase();
-    const filteredUsers = Array.from(users.values()).filter(user => 
-        user.username.toLowerCase().includes(searchTerm)
+// Генерация общего ключа для чата
+async function generateSharedKey(userId) {
+    const user = users.get(userId);
+    if (!user) return;
+    
+    // Создаем уникальную соль для чата
+    const chatSalt = new TextEncoder().encode(`flux-chat-${currentUser.id}-${userId}`);
+    
+    // Генерируем общий ключ на основе паролей пользователей
+    const sharedKey = await cryptoManager.deriveKey(
+        currentUser.password + user.username,
+        chatSalt
     );
     
-    usersList.innerHTML = filteredUsers.map(user => `
-        <div class="user-item" data-user-id="${user.id}">
-            <div class="user-avatar">${user.username[0].toUpperCase()}</div>
-            <div class="user-name">${user.username}</div>
-            <div class="user-status ${user.status === 'online' ? '' : 'offline'}"></div>
-        </div>
-    `).join('');
+    userKeys.set(userId, sharedKey);
+}
+
+// Установка P2P соединения
+async function establishPeerConnection(userId) {
+    if (peerConnections.has(userId)) return;
     
-    // Добавляем обработчики кликов
-    document.querySelectorAll('.user-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const userId = item.dataset.userId;
-            const user = users.get(userId);
-            if (user) {
-                selectChat(user);
-            }
-        });
+    const peerConnection = new RTCPeerConnection(configuration);
+    peerConnections.set(userId, peerConnection);
+    
+    const dataChannel = peerConnection.createDataChannel('encrypted-chat');
+    dataChannels.set(userId, dataChannel);
+    
+    dataChannel.onopen = () => {
+        console.log(`🔐 Encrypted channel opened with ${userId}`);
+    };
+    
+    dataChannel.onmessage = async (event) => {
+        const encryptedData = JSON.parse(event.data);
+        await handleEncryptedData(encryptedData, userId);
+    };
+    
+    peerConnection.onicecandidate = async (event) => {
+        if (event.candidate) {
+            await addDoc(collection(db, 'signals'), {
+                type: 'candidate',
+                from: currentUser.id,
+                to: userId,
+                candidate: event.candidate,
+                timestamp: serverTimestamp()
+            });
+        }
+    };
+    
+    peerConnection.ondatachannel = (event) => {
+        const channel = event.channel;
+        dataChannels.set(userId, channel);
+        
+        channel.onmessage = async (event) => {
+            const encryptedData = JSON.parse(event.data);
+            await handleEncryptedData(encryptedData, userId);
+        };
+    };
+    
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    
+    await addDoc(collection(db, 'signals'), {
+        type: 'offer',
+        from: currentUser.id,
+        to: userId,
+        offer: offer,
+        timestamp: serverTimestamp()
     });
 }
 
-// Выбор чата
-function selectChat(user) {
-    currentChat = user;
-    chatUsername.textContent = user.username;
-    chatStatus.textContent = user.status === 'online' ? 'В сети' : 'Не в сети';
-    chatStatus.className = user.status === 'online' ? 'chat-status' : 'chat-status offline';
+// Обработка зашифрованных данных
+async function handleEncryptedData(encryptedData, fromUserId) {
+    const sharedKey = userKeys.get(fromUserId);
+    if (!sharedKey) return;
     
-    messageInput.disabled = false;
-    sendBtn.disabled = false;
-    audioCallBtn.disabled = user.status !== 'online';
-    videoCallBtn.disabled = user.status !== 'online';
+    try {
+        const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
+        const data = JSON.parse(decrypted);
+        
+        switch (data.type) {
+            case 'text':
+                await saveMessage({
+                    id: Date.now(),
+                    senderId: fromUserId,
+                    receiverId: currentUser.id,
+                    content: data.content,
+                    type: 'text',
+                    timestamp: new Date()
+                });
+                break;
+                
+            case 'file':
+                // Сохраняем зашифрованный файл в localStorage
+                const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+                files[data.fileId] = {
+                    encryptedData: data.fileData,
+                    name: data.fileName,
+                    size: data.fileSize,
+                    type: data.fileType
+                };
+                localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+                
+                await saveMessage({
+                    id: Date.now(),
+                    senderId: fromUserId,
+                    receiverId: currentUser.id,
+                    content: data.fileId,
+                    type: 'file',
+                    fileName: data.fileName,
+                    fileSize: data.fileSize,
+                    timestamp: new Date()
+                });
+                break;
+        }
+    } catch (error) {
+        console.error('Ошибка дешифрования:', error);
+    }
+}
+
+// Отправка зашифрованных данных
+async function sendEncryptedData(userId, data) {
+    const sharedKey = userKeys.get(userId);
+    if (!sharedKey) return false;
     
-    loadMessages();
+    const dataChannel = dataChannels.get(userId);
+    if (!dataChannel || dataChannel.readyState !== 'open') return false;
+    
+    const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
+    dataChannel.send(JSON.stringify(encrypted));
+    return true;
+}
+
+// Отправка текстового сообщения
+sendBtn.addEventListener('click', async () => {
+    if (!messageInput.value.trim() || !currentChat) return;
+    
+    const content = messageInput.value.trim();
+    const success = await sendEncryptedData(currentChat.id, {
+        type: 'text',
+        content: content
+    });
+    
+    if (success) {
+        await saveMessage({
+            id: Date.now(),
+            senderId: currentUser.id,
+            receiverId: currentChat.id,
+            content: content,
+            type: 'text',
+            timestamp: new Date()
+        });
+        messageInput.value = '';
+    } else {
+        alert('Пользователь не в сети');
+    }
+});
+
+// Отправка файла
+fileBtn.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file && currentChat) {
+            await sendEncryptedFile(file);
+        }
+    };
+    input.click();
+});
+
+// Отправка зашифрованного файла
+async function sendEncryptedFile(file) {
+    const sharedKey = userKeys.get(currentChat.id);
+    if (!sharedKey) {
+        alert('Ключ шифрования не найден');
+        return;
+    }
+    
+    const fileId = `${Date.now()}_${file.name}`;
+    
+    // Шифруем файл
+    const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
+    
+    const success = await sendEncryptedData(currentChat.id, {
+        type: 'file',
+        fileId: fileId,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        fileData: encryptedFile
+    });
+    
+    if (success) {
+        // Сохраняем зашифрованный файл локально
+        const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+        files[fileId] = encryptedFile;
+        localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+        
+        await saveMessage({
+            id: Date.now(),
+            senderId: currentUser.id,
+            receiverId: currentChat.id,
+            content: fileId,
+            type: 'file',
+            fileName: file.name,
+            fileSize: file.size,
+            timestamp: new Date()
+        });
+    } else {
+        alert('Не удалось отправить файл');
+    }
+}
+
+// Сохранение сообщения
+async function saveMessage(message) {
+    try {
+        const messagesRef = collection(db, 'messages');
+        await addDoc(messagesRef, {
+            ...message,
+            timestamp: serverTimestamp(),
+            participants: [message.senderId, message.receiverId]
+        });
+    } catch (error) {
+        console.error('Ошибка сохранения:', error);
+    }
 }
 
 // Загрузка сообщений
@@ -262,94 +656,152 @@ function loadMessages() {
 function renderMessages(messages) {
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
-        const content = msg.type === 'text' ? 
-            `<div>${escapeHtml(msg.content)}</div>` :
-            `<div class="message-file" data-file-url="${msg.content}">
-                <span>📎</span>
-                <span>${msg.fileName || 'Файл'}</span>
-                <span>(${formatFileSize(msg.fileSize || 0)})</span>
-            </div>`;
         
-        return `
-            <div class="message ${isSent ? 'sent' : 'received'}">
-                ${content}
-                <div class="message-time">${formatTime(msg.timestamp)}</div>
-            </div>
-        `;
+        if (msg.type === 'text') {
+            return `
+                <div class="message ${isSent ? 'sent' : 'received'}">
+                    <div>${escapeHtml(msg.content)}</div>
+                    <div class="message-time">
+                        ${formatTime(msg.timestamp)}
+                        <span class="encrypted-badge">🔒</span>
+                    </div>
+                </div>
+            `;
+        } else if (msg.type === 'file') {
+            return `
+                <div class="message ${isSent ? 'sent' : 'received'}">
+                    <div class="message-file" data-file-id="${msg.content}">
+                        <span>📎</span>
+                        <span>${escapeHtml(msg.fileName)}</span>
+                        <span>(${formatFileSize(msg.fileSize)})</span>
+                        <span class="encrypted-badge">🔒</span>
+                    </div>
+                    <div class="message-time">${formatTime(msg.timestamp)}</div>
+                </div>
+            `;
+        }
+        return '';
     }).join('');
     
-    // Добавляем обработчики для файлов
     document.querySelectorAll('.message-file').forEach(el => {
-        el.addEventListener('click', () => {
-            const url = el.dataset.fileUrl;
-            window.open(url, '_blank');
+        el.addEventListener('click', async () => {
+            const fileId = el.dataset.fileId;
+            await downloadAndDecryptFile(fileId);
         });
     });
     
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// Отправка сообщения
-sendBtn.addEventListener('click', async () => {
-    if (!messageInput.value.trim() || !currentChat) return;
-    
-    await sendMessage(messageInput.value.trim(), 'text');
-    messageInput.value = '';
-});
-
-messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendBtn.click();
+// Скачивание и дешифрование файла
+async function downloadAndDecryptFile(fileId) {
+    const sharedKey = userKeys.get(currentChat.id);
+    if (!sharedKey) {
+        alert('Ключ шифрования не найден');
+        return;
     }
-});
-
-// Отправка файла
-fileBtn.addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (file && currentChat) {
-            await uploadAndSendFile(file);
-        }
-    };
-    input.click();
-});
-
-// Загрузка и отправка файла
-async function uploadAndSendFile(file) {
-    const fileRef = ref(storage, `files/${Date.now()}_${file.name}`);
-    await uploadBytes(fileRef, file);
-    const url = await getDownloadURL(fileRef);
     
-    await sendMessage(url, 'file', {
-        fileName: file.name,
-        fileSize: file.size
+    const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+    const encryptedFile = files[fileId];
+    
+    if (encryptedFile) {
+        try {
+            const decryptedFile = await cryptoManager.decryptFileFromText(encryptedFile, sharedKey);
+            
+            const blob = new Blob([decryptedFile.data], { type: decryptedFile.type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = decryptedFile.name;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Ошибка дешифрования файла:', error);
+            alert('Ошибка дешифрования файла');
+        }
+    } else {
+        alert('Файл не найден');
+    }
+}
+
+// Сигналинг для WebRTC
+function setupDataChannelSignaling() {
+    const signalsRef = collection(db, 'signals');
+    const q = query(signalsRef, where('to', '==', currentUser.id));
+    
+    onSnapshot(q, async (snapshot) => {
+        for (const doc of snapshot.docs) {
+            const signal = doc.data();
+            const peerConnection = peerConnections.get(signal.from);
+            
+            if (peerConnection) {
+                if (signal.type === 'offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    
+                    await addDoc(collection(db, 'signals'), {
+                        type: 'answer',
+                        from: currentUser.id,
+                        to: signal.from,
+                        answer: answer,
+                        timestamp: serverTimestamp()
+                    });
+                } else if (signal.type === 'answer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
+                } else if (signal.type === 'candidate') {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                }
+            }
+            
+            await deleteDoc(doc.ref);
+        }
     });
 }
 
-// Отправка сообщения
-async function sendMessage(content, type, metadata = {}) {
-    try {
-        await addDoc(collection(db, 'messages'), {
-            senderId: currentUser.id,
-            receiverId: currentChat.id,
-            content: content,
-            type: type,
-            timestamp: serverTimestamp(),
-            participants: [currentUser.id, currentChat.id],
-            ...metadata
-        });
-    } catch (error) {
-        console.error('Ошибка отправки сообщения:', error);
-    }
+// Выбор чата
+function selectChat(user) {
+    currentChat = user;
+    chatUsername.textContent = user.username;
+    chatStatus.textContent = user.status === 'online' ? 'В сети' : 'Не в сети';
+    chatStatus.className = user.status === 'online' ? 'chat-status' : 'chat-status offline';
+    
+    const isOnline = user.status === 'online';
+    messageInput.disabled = !isOnline;
+    sendBtn.disabled = !isOnline;
+    audioCallBtn.disabled = !isOnline;
+    videoCallBtn.disabled = !isOnline;
+    
+    loadMessages();
 }
 
-// Поиск пользователей
-searchUsers.addEventListener('input', renderUsersList);
+// Отображение списка пользователей
+function renderUsersList() {
+    const searchTerm = searchUsers.value.toLowerCase();
+    const filteredUsers = Array.from(users.values()).filter(user => 
+        user.username.toLowerCase().includes(searchTerm)
+    );
+    
+    usersList.innerHTML = filteredUsers.map(user => `
+        <div class="user-item" data-user-id="${user.id}">
+            <div class="user-avatar">${user.username[0].toUpperCase()}</div>
+            <div class="user-name">${escapeHtml(user.username)}</div>
+            <div class="user-status ${user.status === 'online' ? '' : 'offline'}"></div>
+        </div>
+    `).join('');
+    
+    document.querySelectorAll('.user-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const userId = item.dataset.userId;
+            const user = users.get(userId);
+            if (user) {
+                selectChat(user);
+            }
+        });
+    });
+}
 
-// WebRTC звонки
+// WebRTC звонки (аудио/видео уже шифруются самим WebRTC)
 audioCallBtn.addEventListener('click', () => startCall(false));
 videoCallBtn.addEventListener('click', () => startCall(true));
 
@@ -362,8 +814,8 @@ async function startCall(isVideo) {
         
         localVideo.srcObject = localStream;
         
-        const peerConnection = new RTCPeerConnection(configuration);
-        peerConnections.set(currentChat.id, peerConnection);
+        const peerConnection = peerConnections.get(currentChat.id);
+        if (!peerConnection) return;
         
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
@@ -374,33 +826,8 @@ async function startCall(isVideo) {
             remoteVideo.srcObject = remoteStream;
         };
         
-        peerConnection.onicecandidate = async (event) => {
-            if (event.candidate) {
-                await addDoc(collection(db, 'calls'), {
-                    type: 'candidate',
-                    senderId: currentUser.id,
-                    receiverId: currentChat.id,
-                    candidate: event.candidate,
-                    timestamp: serverTimestamp()
-                });
-            }
-        };
-        
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        
-        await addDoc(collection(db, 'calls'), {
-            type: 'offer',
-            senderId: currentUser.id,
-            receiverId: currentChat.id,
-            offer: offer,
-            timestamp: serverTimestamp()
-        });
-        
         callPanel.classList.remove('hidden');
         currentCall = { peerConnection, isVideo };
-        
-        listenForCallSignals();
         
     } catch (error) {
         console.error('Ошибка звонка:', error);
@@ -408,97 +835,17 @@ async function startCall(isVideo) {
     }
 }
 
-// Прослушивание сигналов звонка
-function listenForCallSignals() {
-    const callsRef = collection(db, 'calls');
-    const q = query(callsRef, where('receiverId', '==', currentUser.id));
-    
-    onSnapshot(q, async (snapshot) => {
-        for (const doc of snapshot.docs) {
-            const signal = doc.data();
-            
-            if (signal.senderId === currentChat?.id) {
-                if (signal.type === 'offer') {
-                    await handleOffer(signal.offer, signal.senderId);
-                } else if (signal.type === 'answer') {
-                    const peerConnection = peerConnections.get(signal.senderId);
-                    if (peerConnection) {
-                        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
-                    }
-                } else if (signal.type === 'candidate') {
-                    const peerConnection = peerConnections.get(signal.senderId);
-                    if (peerConnection) {
-                        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                    }
-                }
-                
-                await deleteDoc(doc.ref);
-            }
-        }
-    });
-}
-
-async function handleOffer(offer, senderId) {
-    const accept = confirm('Входящий звонок. Принять?');
-    
-    if (accept) {
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: true
-            });
-            
-            localVideo.srcObject = localStream;
-            
-            const peerConnection = new RTCPeerConnection(configuration);
-            peerConnections.set(senderId, peerConnection);
-            
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
-            
-            peerConnection.ontrack = (event) => {
-                remoteStream = event.streams[0];
-                remoteVideo.srcObject = remoteStream;
-            };
-            
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            await addDoc(collection(db, 'calls'), {
-                type: 'answer',
-                senderId: currentUser.id,
-                receiverId: senderId,
-                answer: answer,
-                timestamp: serverTimestamp()
-            });
-            
-            callPanel.classList.remove('hidden');
-            currentCall = { peerConnection, isVideo: true };
-            
-        } catch (error) {
-            console.error('Ошибка ответа на звонок:', error);
-        }
-    }
-}
-
-// Завершение звонка
 endCallBtn.addEventListener('click', () => {
     if (currentCall) {
-        currentCall.peerConnection.close();
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
-        peerConnections.delete(currentChat?.id);
         callPanel.classList.add('hidden');
         currentCall = null;
         localStream = null;
     }
 });
 
-// Управление аудио/видео во время звонка
 muteAudioBtn.addEventListener('click', () => {
     if (localStream) {
         const audioTrack = localStream.getAudioTracks()[0];
@@ -517,7 +864,7 @@ muteVideoBtn.addEventListener('click', () => {
     }
 });
 
-// Реальное обновление статусов пользователей
+// Реальное обновление статусов
 function setupRealtimeUsers() {
     const usersRef = collection(db, 'users');
     onSnapshot(usersRef, (snapshot) => {
@@ -535,11 +882,22 @@ function setupRealtimeUsers() {
             const updatedUser = users.get(currentChat.id);
             chatStatus.textContent = updatedUser.status === 'online' ? 'В сети' : 'Не в сети';
             chatStatus.className = updatedUser.status === 'online' ? 'chat-status' : 'chat-status offline';
-            audioCallBtn.disabled = updatedUser.status !== 'online';
-            videoCallBtn.disabled = updatedUser.status !== 'online';
+            const isOnline = updatedUser.status === 'online';
+            messageInput.disabled = !isOnline;
+            sendBtn.disabled = !isOnline;
+            audioCallBtn.disabled = !isOnline;
+            videoCallBtn.disabled = !isOnline;
         }
     });
 }
+
+searchUsers.addEventListener('input', renderUsersList);
+messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+    }
+});
 
 // Вспомогательные функции
 function escapeHtml(text) {
@@ -550,7 +908,7 @@ function escapeHtml(text) {
 
 function formatTime(timestamp) {
     if (!timestamp) return '';
-    const date = timestamp.toDate();
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
