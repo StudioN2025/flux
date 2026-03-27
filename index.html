@@ -47,11 +47,24 @@
                         </div>
                         <button id="logout-btn" class="icon-btn">🚪</button>
                     </div>
-                    <div class="search-box">
-                        <input type="text" id="search-users" placeholder="Поиск по имени или коду...">
-                        <button id="search-by-code-btn" class="search-code-btn" title="Поиск по коду">🔍</button>
+                    
+                    <!-- Кнопка добавления контакта -->
+                    <div class="add-contact">
+                        <button id="add-contact-btn" class="btn-add-contact">➕ Добавить контакт по коду</button>
                     </div>
-                    <div class="users-list" id="users-list"></div>
+                    
+                    <!-- Список контактов -->
+                    <div class="contacts-header">
+                        <span>📱 Контакты</span>
+                        <span class="contacts-count" id="contacts-count">0</span>
+                    </div>
+                    <div class="contacts-list" id="contacts-list">
+                        <div class="empty-contacts">
+                            <div>📭</div>
+                            <div>Нет контактов</div>
+                            <div class="empty-hint">Нажмите "Добавить контакт" чтобы начать общение</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Основная область чата -->
@@ -106,23 +119,149 @@
         </div>
     </div>
 
-    <!-- Модальное окно для поиска по коду -->
-    <div id="code-search-modal" class="modal hidden">
+    <!-- Модальное окно для добавления контакта -->
+    <div id="add-contact-modal" class="modal hidden">
         <div class="modal-content">
-            <h3>🔍 Поиск по коду</h3>
-            <input type="text" id="code-input" placeholder="XXXX-XXXX-XXXX" maxlength="14" autocomplete="off">
+            <h3>➕ Добавить контакт</h3>
+            <input type="text" id="contact-code-input" placeholder="Введите 12-значный код" maxlength="14" autocomplete="off">
             <div class="modal-buttons">
-                <button id="modal-search-btn" class="btn-primary">Найти</button>
-                <button id="modal-close-btn" class="btn-secondary">Закрыть</button>
+                <button id="modal-add-btn" class="btn-primary">Добавить</button>
+                <button id="modal-add-close-btn" class="btn-secondary">Отмена</button>
             </div>
-            <div id="modal-error" class="error-message"></div>
+            <div id="modal-add-error" class="error-message"></div>
         </div>
     </div>
 
-    <!-- Уведомление о копировании -->
+    <!-- Уведомление -->
     <div id="copy-toast" class="toast hidden">✅ Код скопирован!</div>
 
     <style>
+        .add-contact {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .btn-add-contact {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .btn-add-contact:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(102,126,234,0.3);
+        }
+        
+        .contacts-header {
+            padding: 12px 15px;
+            background: #f0f0f0;
+            font-size: 12px;
+            font-weight: bold;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .contacts-count {
+            background: #667eea;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+        }
+        
+        .contacts-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .contact-item {
+            padding: 12px 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .contact-item:hover {
+            background: #e9ecef;
+        }
+        
+        .contact-item.active {
+            background: #e3f2fd;
+        }
+        
+        .contact-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        
+        .contact-info {
+            flex: 1;
+        }
+        
+        .contact-name {
+            font-weight: 500;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        
+        .contact-code-small {
+            font-size: 10px;
+            color: #667eea;
+            font-family: monospace;
+        }
+        
+        .contact-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .contact-status.online {
+            background: #4caf50;
+        }
+        
+        .contact-status.offline {
+            background: #999;
+        }
+        
+        .empty-contacts {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+        
+        .empty-contacts div:first-child {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .empty-hint {
+            font-size: 12px;
+            margin-top: 10px;
+            color: #ccc;
+        }
+        
         .code-wrapper {
             display: flex;
             align-items: center;
@@ -143,7 +282,6 @@
         
         .toggle-code-btn:hover {
             background: #e0e0e0;
-            transform: scale(1.02);
         }
         
         .chat-code-container {
@@ -171,20 +309,6 @@
             text-decoration: underline;
         }
         
-        .copy-chat-code-btn {
-            background: none;
-            border: none;
-            font-size: 10px;
-            cursor: pointer;
-            padding: 2px 4px;
-            border-radius: 4px;
-            color: #666;
-        }
-        
-        .copy-chat-code-btn:hover {
-            background: #e0e0e0;
-        }
-        
         .user-code {
             font-family: 'Courier New', monospace;
             font-size: 12px;
@@ -201,7 +325,6 @@
         .user-code.hidden-code {
             filter: blur(4px);
             background: #e0e0e0;
-            cursor: pointer;
         }
         
         .user-code.hidden-code:hover {
@@ -210,17 +333,6 @@
         
         .user-code.visible-code {
             filter: none;
-        }
-        
-        .user-code-container {
-            margin: 5px 0;
-        }
-        
-        .code-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
         }
     </style>
 
