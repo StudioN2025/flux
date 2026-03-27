@@ -140,6 +140,7 @@ let currentCall = null;
 let cryptoManager = new CryptoManager();
 let userKeys = new Map();
 let isCodeVisible = false;
+let statusUnsubscribe = null;
 
 const configuration = {
     iceServers: [
@@ -189,6 +190,7 @@ const toast = document.getElementById('copy-toast');
 
 // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -201,7 +203,7 @@ function formatTime(timestamp) {
 }
 
 function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
+    if (!bytes || bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -231,6 +233,7 @@ async function generateUniqueCode() {
 }
 
 async function copyToClipboard(text) {
+    if (!text) return;
     try {
         await navigator.clipboard.writeText(text);
         showToast('✅ Код скопирован!');
@@ -253,19 +256,20 @@ function showToast(message) {
 }
 
 function toggleCodeVisibility() {
+    if (!currentUser) return;
     isCodeVisible = !isCodeVisible;
     if (isCodeVisible) {
-        userCodeSpan.textContent = currentUser?.userCode || '••••-••••-••••';
+        userCodeSpan.textContent = currentUser.userCode || '••••-••••-••••';
         userCodeSpan.classList.remove('hidden-code');
         userCodeSpan.classList.add('visible-code');
-        toggleCodeBtn.textContent = '🙈';
-        toggleCodeBtn.title = 'Скрыть код';
+        if (toggleCodeBtn) toggleCodeBtn.textContent = '🙈';
+        if (toggleCodeBtn) toggleCodeBtn.title = 'Скрыть код';
     } else {
         userCodeSpan.textContent = '••••-••••-••••';
         userCodeSpan.classList.add('hidden-code');
         userCodeSpan.classList.remove('visible-code');
-        toggleCodeBtn.textContent = '👁️';
-        toggleCodeBtn.title = 'Показать код';
+        if (toggleCodeBtn) toggleCodeBtn.textContent = '👁️';
+        if (toggleCodeBtn) toggleCodeBtn.title = 'Показать код';
     }
 }
 
@@ -273,7 +277,7 @@ function toggleCodeVisibility() {
 function renderContacts() {
     if (!contactsList) return;
     
-    if (contacts.length === 0) {
+    if (!contacts || contacts.length === 0) {
         contactsList.innerHTML = `
             <div class="empty-contacts">
                 <div>📭</div>
@@ -287,10 +291,10 @@ function renderContacts() {
     
     contactsList.innerHTML = contacts.map(contact => `
         <div class="contact-item" data-contact-id="${contact.id}">
-            <div class="contact-avatar">${contact.username[0].toUpperCase()}</div>
+            <div class="contact-avatar">${contact.username ? contact.username[0].toUpperCase() : '?'}</div>
             <div class="contact-info">
-                <div class="contact-name">${escapeHtml(contact.username)}</div>
-                <div class="contact-code-small">🔑 ${contact.userCode}</div>
+                <div class="contact-name">${escapeHtml(contact.username || 'Unknown')}</div>
+                <div class="contact-code-small">🔑 ${contact.userCode || '---'}</div>
             </div>
             <div class="contact-status ${contact.status === 'online' ? 'online' : 'offline'}"></div>
         </div>
@@ -308,6 +312,11 @@ function renderContacts() {
 }
 
 async function addContactByCode(code) {
+    if (!code) {
+        if (modalAddError) modalAddError.textContent = 'Введите код';
+        return false;
+    }
+    
     const normalizedCode = normalizeCode(code);
     
     try {
@@ -316,7 +325,7 @@ async function addContactByCode(code) {
         const querySnapshot = await getDocs(q);
         
         if (querySnapshot.empty) {
-            modalAddError.textContent = '❌ Пользователь с таким кодом не найден';
+            if (modalAddError) modalAddError.textContent = '❌ Пользователь с таким кодом не найден';
             return false;
         }
         
@@ -324,18 +333,18 @@ async function addContactByCode(code) {
         const userData = userDoc.data();
         
         if (userDoc.id === currentUser.id) {
-            modalAddError.textContent = '❌ Нельзя добавить самого себя';
+            if (modalAddError) modalAddError.textContent = '❌ Нельзя добавить самого себя';
             return false;
         }
         
         if (contacts.some(c => c.id === userDoc.id)) {
-            modalAddError.textContent = '❌ Этот контакт уже есть в списке';
+            if (modalAddError) modalAddError.textContent = '❌ Этот контакт уже есть в списке';
             return false;
         }
         
         const newContact = {
             id: userDoc.id,
-            username: userData.username,
+            username: userData.username || 'Unknown',
             userCode: userData.formattedCode || formatUserCode(userData.userCode),
             status: userData.status || 'offline',
             addedAt: Date.now()
@@ -348,12 +357,12 @@ async function addContactByCode(code) {
         await generateSharedKey(userDoc.id);
         await establishPeerConnection(userDoc.id);
         
-        showToast(`✅ ${userData.username} добавлен в контакты!`);
+        showToast(`✅ ${newContact.username} добавлен в контакты!`);
         return true;
         
     } catch (error) {
         console.error('Ошибка добавления контакта:', error);
-        modalAddError.textContent = '❌ Ошибка при добавлении контакта';
+        if (modalAddError) modalAddError.textContent = '❌ Ошибка при добавлении контакта';
         return false;
     }
 }
@@ -457,10 +466,10 @@ loginBtn.addEventListener('click', async () => {
         isCodeVisible = false;
         userCodeSpan.textContent = '••••-••••-••••';
         userCodeSpan.classList.add('hidden-code');
-        toggleCodeBtn.textContent = '👁️';
-        toggleCodeBtn.onclick = toggleCodeVisibility;
-        copyCodeBtn.onclick = () => copyToClipboard(currentUser.userCode);
-        userCodeSpan.onclick = () => {
+        if (toggleCodeBtn) toggleCodeBtn.textContent = '👁️';
+        if (toggleCodeBtn) toggleCodeBtn.onclick = toggleCodeVisibility;
+        if (copyCodeBtn) copyCodeBtn.onclick = () => copyToClipboard(currentUser.userCode);
+        if (userCodeSpan) userCodeSpan.onclick = () => {
             if (isCodeVisible) copyToClipboard(currentUser.userCode);
             else toggleCodeVisibility();
         };
@@ -490,11 +499,15 @@ logoutBtn.addEventListener('click', async () => {
             await updateDoc(userDoc, { status: 'offline', lastSeen: serverTimestamp() });
         } catch (error) { console.error('Ошибка обновления статуса:', error); }
         
-        for (const [userId, pc] of peerConnections) pc.close();
+        for (const [userId, pc] of peerConnections) {
+            if (pc) pc.close();
+        }
         peerConnections.clear();
         dataChannels.clear();
         userKeys.clear();
         if (localStream) localStream.getTracks().forEach(track => track.stop());
+        
+        if (statusUnsubscribe) statusUnsubscribe();
     }
     
     currentUser = null;
@@ -507,35 +520,39 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 // ============= ДОБАВЛЕНИЕ КОНТАКТА =============
-addContactBtn.addEventListener('click', () => {
-    addContactModal.classList.remove('hidden');
-    contactCodeInput.value = '';
-    modalAddError.textContent = '';
-    contactCodeInput.focus();
-});
+if (addContactBtn) {
+    addContactBtn.addEventListener('click', () => {
+        if (addContactModal) addContactModal.classList.remove('hidden');
+        if (contactCodeInput) contactCodeInput.value = '';
+        if (modalAddError) modalAddError.textContent = '';
+        if (contactCodeInput) contactCodeInput.focus();
+    });
+}
 
-modalAddCloseBtn.addEventListener('click', () => {
-    addContactModal.classList.add('hidden');
-});
+if (modalAddCloseBtn) {
+    modalAddCloseBtn.addEventListener('click', () => {
+        if (addContactModal) addContactModal.classList.add('hidden');
+    });
+}
 
-modalAddBtn.addEventListener('click', async () => {
-    const code = contactCodeInput.value.trim();
-    if (!code) {
-        modalAddError.textContent = 'Введите код';
-        return;
-    }
-    await addContactByCode(code);
-    addContactModal.classList.add('hidden');
-});
+if (modalAddBtn) {
+    modalAddBtn.addEventListener('click', async () => {
+        const code = contactCodeInput ? contactCodeInput.value.trim() : '';
+        await addContactByCode(code);
+        if (addContactModal) addContactModal.classList.add('hidden');
+    });
+}
 
-contactCodeInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') modalAddBtn.click();
-});
+if (contactCodeInput) {
+    contactCodeInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && modalAddBtn) modalAddBtn.click();
+    });
+}
 
 // ============= P2P СОЕДИНЕНИЕ =============
 async function generateSharedKey(userId) {
     const contact = contacts.find(c => c.id === userId);
-    if (!contact) return;
+    if (!contact || !currentUser) return;
     const chatSalt = new TextEncoder().encode(`flux-chat-${currentUser.id}-${userId}`);
     const sharedKey = await cryptoManager.deriveKey(currentUser.password + contact.username, chatSalt);
     userKeys.set(userId, sharedKey);
@@ -552,12 +569,16 @@ async function establishPeerConnection(userId) {
     
     dataChannel.onopen = () => console.log(`🔐 Channel opened with ${userId}`);
     dataChannel.onmessage = async (event) => {
-        const encryptedData = JSON.parse(event.data);
-        await handleEncryptedData(encryptedData, userId);
+        try {
+            const encryptedData = JSON.parse(event.data);
+            await handleEncryptedData(encryptedData, userId);
+        } catch (error) {
+            console.error('Ошибка обработки сообщения:', error);
+        }
     };
     
     peerConnection.onicecandidate = async (event) => {
-        if (event.candidate) {
+        if (event.candidate && currentUser) {
             try {
                 await addDoc(collection(db, 'signals'), {
                     type: 'candidate', from: currentUser.id, to: userId,
@@ -571,22 +592,30 @@ async function establishPeerConnection(userId) {
         const channel = event.channel;
         dataChannels.set(userId, channel);
         channel.onmessage = async (event) => {
-            const encryptedData = JSON.parse(event.data);
-            await handleEncryptedData(encryptedData, userId);
+            try {
+                const encryptedData = JSON.parse(event.data);
+                await handleEncryptedData(encryptedData, userId);
+            } catch (error) {
+                console.error('Ошибка обработки сообщения:', error);
+            }
         };
     };
     
     try {
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        await addDoc(collection(db, 'signals'), {
-            type: 'offer', from: currentUser.id, to: userId,
-            offer: serializeSessionDescription(offer), timestamp: serverTimestamp()
-        });
+        if (currentUser) {
+            await addDoc(collection(db, 'signals'), {
+                type: 'offer', from: currentUser.id, to: userId,
+                offer: serializeSessionDescription(offer), timestamp: serverTimestamp()
+            });
+        }
     } catch (error) { console.error('Ошибка создания offer:', error); }
 }
 
 function setupDataChannelSignaling() {
+    if (!currentUser) return;
+    
     const signalsRef = collection(db, 'signals');
     const q = query(signalsRef, where('to', '==', currentUser.id));
     
@@ -601,10 +630,12 @@ function setupDataChannelSignaling() {
                         await peerConnection.setRemoteDescription(deserializeSessionDescription(signal.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
-                        await addDoc(collection(db, 'signals'), {
-                            type: 'answer', from: currentUser.id, to: signal.from,
-                            answer: serializeSessionDescription(answer), timestamp: serverTimestamp()
-                        });
+                        if (currentUser) {
+                            await addDoc(collection(db, 'signals'), {
+                                type: 'answer', from: currentUser.id, to: signal.from,
+                                answer: serializeSessionDescription(answer), timestamp: serverTimestamp()
+                            });
+                        }
                     } else if (signal.type === 'answer') {
                         await peerConnection.setRemoteDescription(deserializeSessionDescription(signal.answer));
                     } else if (signal.type === 'candidate') {
@@ -621,7 +652,7 @@ function setupDataChannelSignaling() {
 // ============= ОБРАБОТКА СООБЩЕНИЙ =============
 async function handleEncryptedData(encryptedData, fromUserId) {
     const sharedKey = userKeys.get(fromUserId);
-    if (!sharedKey) return;
+    if (!sharedKey || !currentUser) return;
     
     try {
         const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
@@ -685,47 +716,56 @@ function getChatId(userId1, userId2) {
 }
 
 // ============= ОТПРАВКА СООБЩЕНИЙ =============
-sendBtn.addEventListener('click', async () => {
-    if (!messageInput.value.trim() || !currentChat) return;
-    
-    const content = messageInput.value.trim();
-    const success = await sendEncryptedData(currentChat.id, { type: 'text', content: content });
-    
-    if (success) {
-        const chatId = getChatId(currentUser.id, currentChat.id);
-        const message = {
-            id: Date.now(),
-            senderId: currentUser.id,
-            receiverId: currentChat.id,
-            content: content,
-            type: 'text',
-            timestamp: Date.now(),
-            isRead: true
-        };
-        addMessageToChat(chatId, message);
-        renderMessagesForChat(chatId);
-        messageInput.value = '';
-    } else {
-        showToast('❌ Пользователь не в сети');
-    }
-});
-
-messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
-});
-
-fileBtn.addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (file && currentChat) {
-            if (file.size > 10 * 1024 * 1024) { showToast('❌ Файл слишком большой! Максимум 10MB'); return; }
-            await sendEncryptedFile(file);
+if (sendBtn) {
+    sendBtn.addEventListener('click', async () => {
+        if (!messageInput.value.trim() || !currentChat) return;
+        
+        const content = messageInput.value.trim();
+        const success = await sendEncryptedData(currentChat.id, { type: 'text', content: content });
+        
+        if (success) {
+            const chatId = getChatId(currentUser.id, currentChat.id);
+            const message = {
+                id: Date.now(),
+                senderId: currentUser.id,
+                receiverId: currentChat.id,
+                content: content,
+                type: 'text',
+                timestamp: Date.now(),
+                isRead: true
+            };
+            addMessageToChat(chatId, message);
+            renderMessagesForChat(chatId);
+            messageInput.value = '';
+        } else {
+            showToast('❌ Пользователь не в сети');
         }
-    };
-    input.click();
-});
+    });
+}
+
+if (messageInput) {
+    messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && sendBtn) {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    });
+}
+
+if (fileBtn) {
+    fileBtn.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (file && currentChat) {
+                if (file.size > 10 * 1024 * 1024) { showToast('❌ Файл слишком большой! Максимум 10MB'); return; }
+                await sendEncryptedFile(file);
+            }
+        };
+        input.click();
+    });
+}
 
 async function sendEncryptedFile(file) {
     const sharedKey = userKeys.get(currentChat.id);
@@ -768,6 +808,11 @@ async function sendEncryptedFile(file) {
 function renderMessagesForChat(chatId) {
     const messages = loadMessagesForChat(chatId);
     if (!messagesContainer) return;
+    
+    if (!messages || messages.length === 0) {
+        messagesContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">💬 Нет сообщений. Начните диалог!</div>';
+        return;
+    }
     
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
@@ -829,20 +874,26 @@ async function downloadAndDecryptFile(fileId) {
 
 // ============= ВЫБОР ЧАТА =============
 function selectChat(contact) {
+    if (!contact) return;
     currentChat = contact;
-    chatUsername.textContent = contact.username;
-    chatCodeSpan.textContent = contact.userCode || '---';
-    chatCodeSpan.onclick = () => copyToClipboard(contact.userCode);
+    
+    if (chatUsername) chatUsername.textContent = contact.username;
+    if (chatCodeSpan) {
+        chatCodeSpan.textContent = contact.userCode || '---';
+        chatCodeSpan.onclick = () => copyToClipboard(contact.userCode);
+    }
     if (copyChatCodeBtn) copyChatCodeBtn.onclick = () => copyToClipboard(contact.userCode);
     
-    chatStatus.textContent = contact.status === 'online' ? '🟢 В сети' : '⚫ Не в сети';
-    chatStatus.className = contact.status === 'online' ? 'chat-status online' : 'chat-status';
-    
     const isOnline = contact.status === 'online';
-    messageInput.disabled = !isOnline;
-    sendBtn.disabled = !isOnline;
-    audioCallBtn.disabled = !isOnline;
-    videoCallBtn.disabled = !isOnline;
+    if (chatStatus) {
+        chatStatus.textContent = isOnline ? '🟢 В сети' : '⚫ Не в сети';
+        chatStatus.className = isOnline ? 'chat-status online' : 'chat-status';
+    }
+    
+    if (messageInput) messageInput.disabled = !isOnline;
+    if (sendBtn) sendBtn.disabled = !isOnline;
+    if (audioCallBtn) audioCallBtn.disabled = !isOnline;
+    if (videoCallBtn) videoCallBtn.disabled = !isOnline;
     
     const chatId = getChatId(currentUser.id, contact.id);
     renderMessagesForChat(chatId);
@@ -859,36 +910,42 @@ function selectChat(contact) {
 
 // ============= ОБНОВЛЕНИЕ СТАТУСОВ =============
 function setupRealtimeUsers() {
+    if (statusUnsubscribe) statusUnsubscribe();
+    
     const usersRef = collection(db, 'users');
-    onSnapshot(usersRef, (snapshot) => {
+    statusUnsubscribe = onSnapshot(usersRef, (snapshot) => {
         snapshot.forEach(doc => {
             const userData = doc.data();
             const contact = contacts.find(c => c.id === doc.id);
             if (contact) {
                 contact.status = userData.status || 'offline';
                 if (currentChat && currentChat.id === doc.id) {
-                    chatStatus.textContent = contact.status === 'online' ? '🟢 В сети' : '⚫ Не в сети';
-                    chatStatus.className = contact.status === 'online' ? 'chat-status online' : 'chat-status';
                     const isOnline = contact.status === 'online';
-                    messageInput.disabled = !isOnline;
-                    sendBtn.disabled = !isOnline;
-                    audioCallBtn.disabled = !isOnline;
-                    videoCallBtn.disabled = !isOnline;
+                    if (chatStatus) {
+                        chatStatus.textContent = isOnline ? '🟢 В сети' : '⚫ Не в сети';
+                        chatStatus.className = isOnline ? 'chat-status online' : 'chat-status';
+                    }
+                    if (messageInput) messageInput.disabled = !isOnline;
+                    if (sendBtn) sendBtn.disabled = !isOnline;
+                    if (audioCallBtn) audioCallBtn.disabled = !isOnline;
+                    if (videoCallBtn) videoCallBtn.disabled = !isOnline;
                 }
             }
         });
         renderContacts();
+    }, (error) => {
+        console.error('Ошибка обновления статусов:', error);
     });
 }
 
 // ============= ЗВОНКИ =============
-audioCallBtn.addEventListener('click', () => startCall(false));
-videoCallBtn.addEventListener('click', () => startCall(true));
+if (audioCallBtn) audioCallBtn.addEventListener('click', () => startCall(false));
+if (videoCallBtn) videoCallBtn.addEventListener('click', () => startCall(true));
 
 async function startCall(isVideo) {
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-        localVideo.srcObject = localStream;
+        if (localVideo) localVideo.srcObject = localStream;
         
         const peerConnection = peerConnections.get(currentChat.id);
         if (!peerConnection) { showToast('❌ Нет P2P соединения'); return; }
@@ -896,42 +953,48 @@ async function startCall(isVideo) {
         localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
         peerConnection.ontrack = (event) => {
             remoteStream = event.streams[0];
-            remoteVideo.srcObject = remoteStream;
+            if (remoteVideo) remoteVideo.srcObject = remoteStream;
         };
         
-        callPanel.classList.remove('hidden');
+        if (callPanel) callPanel.classList.remove('hidden');
         currentCall = { peerConnection, isVideo };
     } catch (error) {
         showToast('❌ Не удалось начать звонок. Проверьте разрешения для камеры и микрофона.');
     }
 }
 
-endCallBtn.addEventListener('click', () => {
-    if (currentCall) {
-        if (localStream) localStream.getTracks().forEach(track => track.stop());
-        callPanel.classList.add('hidden');
-        currentCall = null;
-        localStream = null;
-    }
-});
-
-muteAudioBtn.addEventListener('click', () => {
-    if (localStream) {
-        const audioTrack = localStream.getAudioTracks()[0];
-        audioTrack.enabled = !audioTrack.enabled;
-        muteAudioBtn.textContent = audioTrack.enabled ? '🎤' : '🔇';
-    }
-});
-
-muteVideoBtn.addEventListener('click', () => {
-    if (localStream) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        if (videoTrack) {
-            videoTrack.enabled = !videoTrack.enabled;
-            muteVideoBtn.textContent = videoTrack.enabled ? '📹' : '🚫';
+if (endCallBtn) {
+    endCallBtn.addEventListener('click', () => {
+        if (currentCall) {
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            if (callPanel) callPanel.classList.add('hidden');
+            currentCall = null;
+            localStream = null;
         }
-    }
-});
+    });
+}
+
+if (muteAudioBtn) {
+    muteAudioBtn.addEventListener('click', () => {
+        if (localStream) {
+            const audioTrack = localStream.getAudioTracks()[0];
+            audioTrack.enabled = !audioTrack.enabled;
+            muteAudioBtn.textContent = audioTrack.enabled ? '🎤' : '🔇';
+        }
+    });
+}
+
+if (muteVideoBtn) {
+    muteVideoBtn.addEventListener('click', () => {
+        if (localStream) {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                muteVideoBtn.textContent = videoTrack.enabled ? '📹' : '🚫';
+            }
+        }
+    });
+}
 
 window.copyToClipboard = copyToClipboard;
 console.log('✅ Flux Messenger загружен! Контакты сохраняются локально.');
