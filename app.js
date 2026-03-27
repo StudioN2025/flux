@@ -1,15 +1,14 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc, limit } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
-  authDomain: "flux-a1396.firebaseapp.com",
-  databaseURL: "https://flux-a1396-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "flux-a1396",
-  storageBucket: "flux-a1396.firebasestorage.app",
-  messagingSenderId: "670873031130",
-  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
+    apiKey: "AIzaSyDqf_OGOBlrNHEBqs-PpdzPBSiQH8WifdA",
+    authDomain: "flux-a1396.firebaseapp.com",
+    projectId: "flux-a1396",
+    storageBucket: "flux-a1396.firebasestorage.app",
+    messagingSenderId: "1007504121071",
+    appId: "1:1007504121071:web:023bd25e5a5a51026717b0"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -184,6 +183,7 @@ let remoteStream = null;
 let currentCall = null;
 let cryptoManager = new CryptoManager();
 let userKeys = new Map();
+let isCodeVisible = false;
 
 const configuration = {
     iceServers: [
@@ -203,6 +203,7 @@ const registerBtn = document.getElementById('register-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const currentUserSpan = document.getElementById('current-user');
 const userCodeSpan = document.getElementById('user-code');
+const toggleCodeBtn = document.getElementById('toggle-code-btn');
 const copyCodeBtn = document.getElementById('copy-code-btn');
 const usersList = document.getElementById('users-list');
 const messagesContainer = document.getElementById('messages');
@@ -213,6 +214,7 @@ const searchUsers = document.getElementById('search-users');
 const searchByCodeBtn = document.getElementById('search-by-code-btn');
 const chatUsername = document.getElementById('chat-username');
 const chatCodeSpan = document.getElementById('chat-code');
+const copyChatCodeBtn = document.getElementById('copy-chat-code-btn');
 const chatStatus = document.getElementById('chat-status');
 const audioCallBtn = document.getElementById('audio-call-btn');
 const videoCallBtn = document.getElementById('video-call-btn');
@@ -317,6 +319,25 @@ function showToast(message) {
     }, 2000);
 }
 
+// ============= ПОКАЗ/СКРЫТИЕ КОДА =============
+function toggleCodeVisibility() {
+    isCodeVisible = !isCodeVisible;
+    
+    if (isCodeVisible) {
+        userCodeSpan.textContent = currentUser?.userCode || '••••-••••-••••';
+        userCodeSpan.classList.remove('hidden-code');
+        userCodeSpan.classList.add('visible-code');
+        toggleCodeBtn.textContent = '🙈';
+        toggleCodeBtn.title = 'Скрыть код';
+    } else {
+        userCodeSpan.textContent = '••••-••••-••••';
+        userCodeSpan.classList.add('hidden-code');
+        userCodeSpan.classList.remove('visible-code');
+        toggleCodeBtn.textContent = '👁️';
+        toggleCodeBtn.title = 'Показать код';
+    }
+}
+
 // ============= УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ =============
 registerBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
@@ -413,11 +434,24 @@ loginBtn.addEventListener('click', async () => {
         });
         
         currentUserSpan.textContent = username;
-        userCodeSpan.textContent = currentUser.userCode;
         
-        const copyHandler = () => copyToClipboard(currentUser.userCode);
-        userCodeSpan.onclick = copyHandler;
-        if (copyCodeBtn) copyCodeBtn.onclick = copyHandler;
+        // Устанавливаем скрытый код по умолчанию
+        isCodeVisible = false;
+        userCodeSpan.textContent = '••••-••••-••••';
+        userCodeSpan.classList.add('hidden-code');
+        toggleCodeBtn.textContent = '👁️';
+        toggleCodeBtn.title = 'Показать код';
+        
+        // Добавляем обработчики
+        toggleCodeBtn.onclick = toggleCodeVisibility;
+        copyCodeBtn.onclick = () => copyToClipboard(currentUser.userCode);
+        userCodeSpan.onclick = () => {
+            if (isCodeVisible) {
+                copyToClipboard(currentUser.userCode);
+            } else {
+                toggleCodeVisibility();
+            }
+        };
         
         authScreen.classList.remove('active');
         messengerScreen.classList.add('active');
@@ -464,6 +498,7 @@ logoutBtn.addEventListener('click', async () => {
     messengerScreen.classList.remove('active');
     usernameInput.value = '';
     passwordInput.value = '';
+    isCodeVisible = false;
 });
 
 // ============= ПОИСК ПОЛЬЗОВАТЕЛЕЙ =============
@@ -835,7 +870,6 @@ function loadMessages() {
     if (messagesListener) messagesListener();
     
     const messagesRef = collection(db, 'messages');
-    // Используем более простой запрос без orderBy для избежания индексов
     const q = query(messagesRef, where('participants', 'array-contains', currentUser.id));
     
     messagesListener = onSnapshot(q, (snapshot) => {
@@ -847,7 +881,6 @@ function loadMessages() {
                 relevantMessages.push({ id: doc.id, ...message });
             }
         });
-        // Сортируем на клиенте
         relevantMessages.sort((a, b) => {
             const timeA = a.timestamp?.toDate?.() || new Date(a.timestamp);
             const timeB = b.timestamp?.toDate?.() || new Date(b.timestamp);
@@ -928,8 +961,14 @@ async function downloadAndDecryptFile(fileId) {
 function selectChat(user) {
     currentChat = user;
     chatUsername.textContent = user.username;
-    chatCodeSpan.textContent = `🔑 ${user.userCode || '---'}`;
-    chatCodeSpan.onclick = () => user.userCode && copyToClipboard(user.userCode);
+    chatCodeSpan.textContent = user.userCode || '---';
+    chatCodeSpan.onclick = () => copyToClipboard(user.userCode);
+    
+    if (copyChatCodeBtn) {
+        copyChatCodeBtn.style.display = 'inline-block';
+        copyChatCodeBtn.onclick = () => copyToClipboard(user.userCode);
+    }
+    
     chatStatus.textContent = user.status === 'online' ? '🟢 В сети' : '⚫ Не в сети';
     chatStatus.className = user.status === 'online' ? 'chat-status online' : 'chat-status';
     
