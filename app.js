@@ -12,6 +12,7 @@ const firebaseConfig = {
   messagingSenderId: "670873031130",
   appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
@@ -121,6 +122,7 @@ let userKeys = new Map();
 let isCodeVisible = false;
 let messagesUnsubscribe = null;
 let statusUnsubscribe = null;
+let processedSignals = new Set();
 
 const configuration = {
     iceServers: [
@@ -311,7 +313,6 @@ async function deleteContact(contactId) {
     const contact = contacts.find(c => c.id === contactId);
     if (!contact) return;
     
-    // Закрываем соединения
     if (peerConnections.has(contactId)) {
         const pc = peerConnections.get(contactId);
         if (pc) pc.close();
@@ -324,12 +325,10 @@ async function deleteContact(contactId) {
         userKeys.delete(contactId);
     }
     
-    // Удаляем из списка
     contacts = contacts.filter(c => c.id !== contactId);
     saveContacts(contacts);
     renderContacts();
     
-    // Если удалили текущий чат
     if (currentChat && currentChat.id === contactId) {
         currentChat = null;
         if (chatUsername) chatUsername.textContent = 'Выберите чат';
@@ -543,6 +542,7 @@ logoutBtn.addEventListener('click', async () => {
         peerConnections.clear();
         dataChannels.clear();
         userKeys.clear();
+        processedSignals.clear();
         if (localStream) localStream.getTracks().forEach(track => track.stop());
         
         if (messagesUnsubscribe) messagesUnsubscribe();
@@ -680,16 +680,28 @@ async function establishPeerConnection(userId) {
         };
     };
     
-    try {
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        if (currentUser) {
-            await addDoc(collection(db, 'signals'), {
-                type: 'offer', from: currentUser.id, to: userId,
-                offer: serializeSessionDescription(offer), timestamp: serverTimestamp()
-            });
+    peerConnection.onconnectionstatechange = () => {
+        console.log(`Connection state with ${userId}: ${peerConnection.connectionState}`);
+        if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
+            peerConnections.delete(userId);
+            dataChannels.delete(userId);
         }
-    } catch (error) { console.error('Ошибка создания offer:', error); }
+    };
+    
+    const shouldCreateOffer = currentUser.id < userId;
+    
+    if (shouldCreateOffer) {
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            if (currentUser) {
+                await addDoc(collection(db, 'signals'), {
+                    type: 'offer', from: currentUser.id, to: userId,
+                    offer: serializeSessionDescription(offer), timestamp: serverTimestamp()
+                });
+            }
+        } catch (error) { console.error('Ошибка создания offer:', error); }
+    }
 }
 
 function setupDataChannelSignaling() {
@@ -700,34 +712,62 @@ function setupDataChannelSignaling() {
     
     onSnapshot(q, async (snapshot) => {
         for (const doc of snapshot.docs) {
+            const signalId = doc.id;
+            
+            if (processedSignals.has(signalId)) continue;
+            processedSignals.add(signalId);
+            
             const signal = doc.data();
             const peerConnection = peerConnections.get(signal.from);
             
-            if (peerConnection) {
-                try {
-                    if (signal.type === 'offer') {
-                        await peerConnection.setRemoteDescription(deserializeSessionDescription(signal.offer));
-                        const answer = await peerConnection.createAnswer();
-                        await peerConnection.setLocalDescription(answer);
-                        if (currentUser) {
-                            await addDoc(collection(db, 'signals'), {
-                                type: 'answer', from: currentUser.id, to: signal.from,
-                                answer: serializeSessionDescription(answer), timestamp: serverTimestamp()
-                            });
-                        }
-                    } else if (signal.type === 'answer') {
-                        await peerConnection.setRemoteDescription(deserializeSessionDescription(signal.answer));
-                    } else if (signal.type === 'candidate') {
-                        const candidate = deserializeCandidate(signal.candidate);
-                        if (candidate) await peerConnection.addIceCandidate(candidate);
-                    }
-                } catch (error) {
-                    console.error('Ошибка обработки сигнала:', error);
+            if (!peerConnection) {
+                await establishPeerConnection(signal.from);
+                const newConnection = peerConnections.get(signal.from);
+                if (newConnection) {
+                    await processSignal(newConnection, signal, signal.from);
                 }
+            } else {
+                await processSignal(peerConnection, signal, signal.from);
             }
+            
             try { await deleteDoc(doc.ref); } catch (error) { console.error('Ошибка удаления сигнала:', error); }
         }
     });
+}
+
+async function processSignal(peerConnection, signal, fromUserId) {
+    try {
+        if (signal.type === 'offer') {
+            if (peerConnection.signalingState === 'stable') {
+                const offer = deserializeSessionDescription(signal.offer);
+                await peerConnection.setRemoteDescription(offer);
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                if (currentUser) {
+                    await addDoc(collection(db, 'signals'), {
+                        type: 'answer', from: currentUser.id, to: fromUserId,
+                        answer: serializeSessionDescription(answer), timestamp: serverTimestamp()
+                    });
+                }
+            } else {
+                console.log(`Ignoring offer in state: ${peerConnection.signalingState}`);
+            }
+        } else if (signal.type === 'answer') {
+            if (peerConnection.signalingState === 'have-local-offer') {
+                const answer = deserializeSessionDescription(signal.answer);
+                await peerConnection.setRemoteDescription(answer);
+            } else {
+                console.log(`Ignoring answer in state: ${peerConnection.signalingState}`);
+            }
+        } else if (signal.type === 'candidate') {
+            const candidate = deserializeCandidate(signal.candidate);
+            if (candidate && peerConnection.remoteDescription) {
+                await peerConnection.addIceCandidate(candidate);
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка обработки сигнала:', error);
+    }
 }
 
 // ============= ОБРАБОТКА СООБЩЕНИЙ =============
@@ -790,7 +830,6 @@ function setupMessagesListener() {
                 const messageData = change.doc.data();
                 const otherUserId = messageData.participants.find(id => id !== currentUser.id);
                 
-                // Автоматически добавляем в контакты
                 if (otherUserId && !contacts.some(c => c.id === otherUserId)) {
                     const usersRef = collection(db, 'users');
                     const userDoc = await getDocs(query(usersRef, where('__name__', '==', otherUserId)));
@@ -877,7 +916,6 @@ async function sendMessage(userId, type, content, metadata = {}) {
         ...metadata
     };
     
-    // Сохраняем локально
     const messages = JSON.parse(localStorage.getItem(`flux_messages_${chatId}`) || '[]');
     messages.push(message);
     localStorage.setItem(`flux_messages_${chatId}`, JSON.stringify(messages));
@@ -886,7 +924,6 @@ async function sendMessage(userId, type, content, metadata = {}) {
         renderMessagesForChat(chatId);
     }
     
-    // Отправляем в Firestore
     let firestoreMessage = {
         senderId: currentUser.id,
         receiverId: userId,
@@ -907,8 +944,6 @@ async function sendMessage(userId, type, content, metadata = {}) {
     }
     
     await saveMessageToFirestore(firestoreMessage);
-    
-    // P2P отправка
     await sendP2PMessage(userId, {
         type: type,
         content: content,
