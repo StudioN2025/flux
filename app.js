@@ -1,5 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, serverTimestamp, deleteDoc, orderBy, limit } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, serverTimestamp, deleteDoc, orderBy } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js';
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
@@ -11,9 +12,9 @@ const firebaseConfig = {
   messagingSenderId: "670873031130",
   appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // ============= ГЕНЕРАЦИЯ КОДА =============
 function generateUserCode() {
@@ -58,26 +59,31 @@ class CryptoManager {
     }
     
     async decryptText(encryptedObj, key) {
-        const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(encryptedObj.iv) }, key, new Uint8Array(encryptedObj.data));
-        return this.decoder.decode(decryptedData);
+        try {
+            const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(encryptedObj.iv) }, key, new Uint8Array(encryptedObj.data));
+            return this.decoder.decode(decryptedData);
+        } catch (e) {
+            console.error('Decryption error:', e);
+            return null;
+        }
     }
     
-    async encryptFileToText(file, key) {
+    async encryptBlob(blob, key) {
         const iv = this.generateIV();
-        const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, await file.arrayBuffer());
-        return { data: btoa(String.fromCharCode(...new Uint8Array(encryptedData))), iv: Array.from(iv), name: file.name, type: file.type, size: file.size };
+        const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, await blob.arrayBuffer());
+        return { data: encryptedData, iv: iv };
     }
     
-    async decryptFileFromText(encryptedObj, key) {
-        const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(encryptedObj.iv) }, key, Uint8Array.from(atob(encryptedObj.data), c => c.charCodeAt(0)));
-        return { data: decryptedData, name: encryptedObj.name, type: encryptedObj.type, size: encryptedObj.size };
+    async decryptBlob(encryptedData, key, iv) {
+        const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encryptedData);
+        return new Blob([decryptedData]);
     }
 }
 
 // ============= СЕРИАЛИЗАЦИЯ WEBRTC =============
 function serializeCandidate(candidate) {
     if (!candidate) return null;
-    return { candidate: candidate.candidate, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex, usernameFragment: candidate.usernameFragment };
+    return { candidate: candidate.candidate, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex };
 }
 
 function deserializeCandidate(candidateObj) {
@@ -96,18 +102,10 @@ function deserializeSessionDescription(descriptionObj) {
 }
 
 // ============= УПРАВЛЕНИЕ КОНТАКТАМИ =============
-const STORAGE_KEYS = {
-    CONTACTS: 'flux_contacts'
-};
+const STORAGE_KEYS = { CONTACTS: 'flux_contacts' };
 
-function saveContacts(contacts) {
-    localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(contacts));
-}
-
-function loadContacts() {
-    const contacts = localStorage.getItem(STORAGE_KEYS.CONTACTS);
-    return contacts ? JSON.parse(contacts) : [];
-}
+function saveContacts(contacts) { localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(contacts)); }
+function loadContacts() { const contacts = localStorage.getItem(STORAGE_KEYS.CONTACTS); return contacts ? JSON.parse(contacts) : []; }
 
 // ============= СОСТОЯНИЕ =============
 let currentUser = null;
@@ -156,6 +154,7 @@ const copyChatCodeBtn = document.getElementById('copy-chat-code-btn');
 const chatStatus = document.getElementById('chat-status');
 const audioCallBtn = document.getElementById('audio-call-btn');
 const videoCallBtn = document.getElementById('video-call-btn');
+const deleteContactBtn = document.getElementById('delete-contact-btn');
 const callPanel = document.getElementById('call-panel');
 const localVideo = document.getElementById('local-video');
 const remoteVideo = document.getElementById('remote-video');
@@ -168,6 +167,9 @@ const contactCodeInput = document.getElementById('contact-code-input');
 const modalAddBtn = document.getElementById('modal-add-btn');
 const modalAddCloseBtn = document.getElementById('modal-add-close-btn');
 const modalAddError = document.getElementById('modal-add-error');
+const confirmModal = document.getElementById('confirm-modal');
+const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
 const toast = document.getElementById('copy-toast');
 
 // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
@@ -277,18 +279,69 @@ function renderContacts() {
                 <div class="contact-code-small">🔑 ${contact.userCode || '---'}</div>
             </div>
             <div class="contact-status ${contact.status === 'online' ? 'online' : 'offline'}"></div>
+            <button class="contact-delete-btn" data-contact-id="${contact.id}" title="Удалить контакт">🗑️</button>
         </div>
     `).join('');
     
     if (contactsCount) contactsCount.textContent = contacts.length;
     
     document.querySelectorAll('.contact-item').forEach(item => {
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('contact-delete-btn')) return;
             const contactId = item.dataset.contactId;
             const contact = contacts.find(c => c.id === contactId);
             if (contact) selectChat(contact);
         });
     });
+    
+    document.querySelectorAll('.contact-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const contactId = btn.dataset.contactId;
+            const contact = contacts.find(c => c.id === contactId);
+            if (contact && confirmModal) {
+                confirmModal.dataset.contactId = contactId;
+                confirmModal.classList.remove('hidden');
+            }
+        });
+    });
+}
+
+async function deleteContact(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+    
+    // Закрываем соединения
+    if (peerConnections.has(contactId)) {
+        const pc = peerConnections.get(contactId);
+        if (pc) pc.close();
+        peerConnections.delete(contactId);
+    }
+    if (dataChannels.has(contactId)) {
+        dataChannels.delete(contactId);
+    }
+    if (userKeys.has(contactId)) {
+        userKeys.delete(contactId);
+    }
+    
+    // Удаляем из списка
+    contacts = contacts.filter(c => c.id !== contactId);
+    saveContacts(contacts);
+    renderContacts();
+    
+    // Если удалили текущий чат
+    if (currentChat && currentChat.id === contactId) {
+        currentChat = null;
+        if (chatUsername) chatUsername.textContent = 'Выберите чат';
+        if (chatCodeSpan) chatCodeSpan.textContent = '';
+        if (chatStatus) chatStatus.textContent = 'Не в сети';
+        if (deleteContactBtn) deleteContactBtn.style.display = 'none';
+        if (messageInput) messageInput.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
+        if (messagesContainer) messagesContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">💬 Выберите чат</div>';
+    }
+    
+    showToast(`✅ Контакт "${contact.username}" удален`);
 }
 
 async function addContact(userId, username, userCode) {
@@ -445,7 +498,6 @@ loginBtn.addEventListener('click', async () => {
         const userDocRef = doc(db, 'users', currentUser.id);
         await updateDoc(userDocRef, { status: 'online', lastSeen: serverTimestamp() });
         
-        // Загружаем контакты
         contacts = loadContacts();
         renderContacts();
         
@@ -463,7 +515,6 @@ loginBtn.addEventListener('click', async () => {
         authScreen.classList.remove('active');
         messengerScreen.classList.add('active');
         
-        // Устанавливаем соединения с контактами
         for (const contact of contacts) {
             await generateSharedKey(contact.id);
             await establishPeerConnection(contact.id);
@@ -537,6 +588,32 @@ if (contactCodeInput) {
     });
 }
 
+// ============= УДАЛЕНИЕ КОНТАКТА =============
+if (confirmCancelBtn) {
+    confirmCancelBtn.addEventListener('click', () => {
+        if (confirmModal) confirmModal.classList.add('hidden');
+    });
+}
+
+if (confirmDeleteBtn) {
+    confirmDeleteBtn.addEventListener('click', async () => {
+        const contactId = confirmModal.dataset.contactId;
+        if (contactId) {
+            await deleteContact(contactId);
+        }
+        if (confirmModal) confirmModal.classList.add('hidden');
+    });
+}
+
+if (deleteContactBtn) {
+    deleteContactBtn.addEventListener('click', () => {
+        if (currentChat && confirmModal) {
+            confirmModal.dataset.contactId = currentChat.id;
+            confirmModal.classList.remove('hidden');
+        }
+    });
+}
+
 // ============= P2P СОЕДИНЕНИЕ =============
 async function generateSharedKey(userId) {
     const contact = contacts.find(c => c.id === userId);
@@ -552,14 +629,21 @@ async function establishPeerConnection(userId) {
     const peerConnection = new RTCPeerConnection(configuration);
     peerConnections.set(userId, peerConnection);
     
-    const dataChannel = peerConnection.createDataChannel('encrypted-chat');
+    const dataChannel = peerConnection.createDataChannel('flux-data');
     dataChannels.set(userId, dataChannel);
     
-    dataChannel.onopen = () => console.log(`🔐 Channel opened with ${userId}`);
+    dataChannel.onopen = () => console.log(`🔐 P2P channel opened with ${userId}`);
     dataChannel.onmessage = async (event) => {
         try {
             const encryptedData = JSON.parse(event.data);
-            await handleEncryptedData(encryptedData, userId);
+            const sharedKey = userKeys.get(userId);
+            if (sharedKey) {
+                const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
+                if (decrypted) {
+                    const data = JSON.parse(decrypted);
+                    await handleIncomingMessage(data, userId);
+                }
+            }
         } catch (error) {
             console.error('Ошибка обработки сообщения:', error);
         }
@@ -582,7 +666,14 @@ async function establishPeerConnection(userId) {
         channel.onmessage = async (event) => {
             try {
                 const encryptedData = JSON.parse(event.data);
-                await handleEncryptedData(encryptedData, userId);
+                const sharedKey = userKeys.get(userId);
+                if (sharedKey) {
+                    const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
+                    if (decrypted) {
+                        const data = JSON.parse(decrypted);
+                        await handleIncomingMessage(data, userId);
+                    }
+                }
             } catch (error) {
                 console.error('Ошибка обработки сообщения:', error);
             }
@@ -630,35 +721,55 @@ function setupDataChannelSignaling() {
                         const candidate = deserializeCandidate(signal.candidate);
                         if (candidate) await peerConnection.addIceCandidate(candidate);
                     }
-                } catch (error) { console.error('Ошибка обработки сигнала:', error); }
+                } catch (error) {
+                    console.error('Ошибка обработки сигнала:', error);
+                }
             }
             try { await deleteDoc(doc.ref); } catch (error) { console.error('Ошибка удаления сигнала:', error); }
         }
     });
 }
 
-// ============= ОБРАБОТКА СООБЩЕНИЙ (FIRESTORE) =============
-async function saveMessageToFirestore(chatId, message) {
-    if (!currentUser) return;
+// ============= ОБРАБОТКА СООБЩЕНИЙ =============
+async function handleIncomingMessage(data, fromUserId) {
+    const chatId = getChatId(currentUser.id, fromUserId);
+    const message = {
+        id: Date.now(),
+        senderId: fromUserId,
+        receiverId: currentUser.id,
+        content: data.content,
+        type: data.type,
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        timestamp: Date.now()
+    };
     
+    const messages = JSON.parse(localStorage.getItem(`flux_messages_${chatId}`) || '[]');
+    messages.push(message);
+    localStorage.setItem(`flux_messages_${chatId}`, JSON.stringify(messages));
+    
+    if (currentChat && currentChat.id === fromUserId) {
+        renderMessagesForChat(chatId);
+    }
+}
+
+async function sendP2PMessage(userId, data) {
+    const sharedKey = userKeys.get(userId);
+    if (!sharedKey) return false;
+    
+    const dataChannel = dataChannels.get(userId);
+    if (!dataChannel || dataChannel.readyState !== 'open') return false;
+    
+    const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
+    dataChannel.send(JSON.stringify(encrypted));
+    return true;
+}
+
+async function saveMessageToFirestore(message) {
     try {
-        const sharedKey = userKeys.get(chatId.split('_').find(id => id !== currentUser.id));
-        if (!sharedKey) return;
-        
-        const encryptedContent = await cryptoManager.encryptText(JSON.stringify({
-            content: message.content,
-            fileName: message.fileName,
-            fileSize: message.fileSize,
-            fileId: message.fileId
-        }), sharedKey);
-        
         const messagesRef = collection(db, 'messages');
         await addDoc(messagesRef, {
-            chatId: chatId,
-            senderId: message.senderId,
-            receiverId: message.receiverId,
-            encryptedData: encryptedContent,
-            type: message.type,
+            ...message,
             timestamp: serverTimestamp(),
             participants: [message.senderId, message.receiverId]
         });
@@ -674,52 +785,67 @@ function setupMessagesListener() {
     const q = query(messagesRef, where('participants', 'array-contains', currentUser.id), orderBy('timestamp', 'asc'));
     
     messagesUnsubscribe = onSnapshot(q, async (snapshot) => {
-        snapshot.docChanges().forEach(async (change) => {
+        for (const change of snapshot.docChanges()) {
             if (change.type === 'added') {
                 const messageData = change.doc.data();
                 const otherUserId = messageData.participants.find(id => id !== currentUser.id);
                 
-                // Автоматически добавляем в контакты, если нет в списке
+                // Автоматически добавляем в контакты
                 if (otherUserId && !contacts.some(c => c.id === otherUserId)) {
                     const usersRef = collection(db, 'users');
                     const userDoc = await getDocs(query(usersRef, where('__name__', '==', otherUserId)));
                     if (!userDoc.empty) {
                         const userData = userDoc.docs[0].data();
                         await addContact(otherUserId, userData.username, userData.formattedCode || formatUserCode(userData.userCode));
-                        showToast(`📱 ${userData.username} добавлен в контакты (получено сообщение)`);
+                        showToast(`📱 ${userData.username} добавлен в контакты`);
                     }
                 }
                 
-                // Если это сообщение для текущего чата, отображаем его
                 if (currentChat && currentChat.id === otherUserId) {
                     await displayMessage(messageData);
                 }
             }
-        });
-    }, (error) => {
-        console.error('Ошибка загрузки сообщений:', error);
+        }
     });
 }
 
 async function displayMessage(messageData) {
     const otherUserId = messageData.participants.find(id => id !== currentUser.id);
     const sharedKey = userKeys.get(otherUserId);
-    
     if (!sharedKey) return;
     
     try {
-        const decrypted = await cryptoManager.decryptText(messageData.encryptedData, sharedKey);
-        const data = JSON.parse(decrypted);
+        let content = messageData.content;
+        
+        if (messageData.type === 'text') {
+            if (messageData.encryptedContent) {
+                const decrypted = await cryptoManager.decryptText(messageData.encryptedContent, sharedKey);
+                content = decrypted;
+            }
+        } else if (messageData.type === 'file' && messageData.fileUrl) {
+            const response = await fetch(messageData.fileUrl);
+            const encryptedData = await response.arrayBuffer();
+            
+            const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+            files[messageData.content] = {
+                encryptedData: Array.from(new Uint8Array(encryptedData)),
+                iv: messageData.fileIv,
+                name: messageData.fileName,
+                size: messageData.fileSize,
+                type: messageData.fileType
+            };
+            localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+            content = messageData.content;
+        }
         
         const message = {
             id: messageData.timestamp?.toDate?.()?.getTime() || Date.now(),
             senderId: messageData.senderId,
             receiverId: messageData.receiverId,
-            content: data.content,
+            content: content,
             type: messageData.type,
-            fileName: data.fileName,
-            fileSize: data.fileSize,
-            fileId: data.fileId,
+            fileName: messageData.fileName,
+            fileSize: messageData.fileSize,
             timestamp: messageData.timestamp?.toDate?.() || new Date()
         };
         
@@ -732,15 +858,15 @@ async function displayMessage(messageData) {
             renderMessagesForChat(chatId);
         }
     } catch (error) {
-        console.error('Ошибка дешифрования сообщения:', error);
+        console.error('Ошибка отображения сообщения:', error);
     }
 }
 
 async function sendMessage(userId, type, content, metadata = {}) {
-    const chatId = getChatId(currentUser.id, userId);
     const sharedKey = userKeys.get(userId);
     if (!sharedKey) return false;
     
+    const chatId = getChatId(currentUser.id, userId);
     const message = {
         id: Date.now(),
         senderId: currentUser.id,
@@ -760,38 +886,37 @@ async function sendMessage(userId, type, content, metadata = {}) {
         renderMessagesForChat(chatId);
     }
     
-    // Отправляем через P2P и сохраняем в Firestore
-    const encryptedData = await sendEncryptedData(userId, {
+    // Отправляем в Firestore
+    let firestoreMessage = {
+        senderId: currentUser.id,
+        receiverId: userId,
+        type: type,
+        participants: [currentUser.id, userId]
+    };
+    
+    if (type === 'text') {
+        const encryptedContent = await cryptoManager.encryptText(content, sharedKey);
+        firestoreMessage.encryptedContent = encryptedContent;
+    } else if (type === 'file') {
+        firestoreMessage.content = metadata.fileId;
+        firestoreMessage.fileName = metadata.fileName;
+        firestoreMessage.fileSize = metadata.fileSize;
+        firestoreMessage.fileType = metadata.fileType;
+        firestoreMessage.fileUrl = metadata.fileUrl;
+        firestoreMessage.fileIv = metadata.fileIv;
+    }
+    
+    await saveMessageToFirestore(firestoreMessage);
+    
+    // P2P отправка
+    await sendP2PMessage(userId, {
         type: type,
         content: content,
         fileName: metadata.fileName,
-        fileSize: metadata.fileSize,
-        fileId: metadata.fileId
+        fileSize: metadata.fileSize
     });
     
-    if (encryptedData) {
-        await saveMessageToFirestore(chatId, message);
-    }
-    
     return true;
-}
-
-async function sendEncryptedData(userId, data) {
-    const sharedKey = userKeys.get(userId);
-    if (!sharedKey) return false;
-    
-    const dataChannel = dataChannels.get(userId);
-    if (!dataChannel || dataChannel.readyState !== 'open') return false;
-    
-    try {
-        const encrypted = await cryptoManager.encryptText(JSON.stringify(data), sharedKey);
-        dataChannel.send(JSON.stringify(encrypted));
-        return true;
-    } catch (error) { return false; }
-}
-
-function getChatId(userId1, userId2) {
-    return [userId1, userId2].sort().join('_');
 }
 
 // ============= ОТПРАВКА СООБЩЕНИЙ =============
@@ -805,7 +930,7 @@ if (sendBtn) {
         if (success) {
             messageInput.value = '';
         } else {
-            showToast('❌ Пользователь не в сети, сообщение будет доставлено позже');
+            showToast('❌ Сообщение не отправлено');
         }
     });
 }
@@ -826,36 +951,56 @@ if (fileBtn) {
         input.onchange = async (e) => {
             const file = e.target.files[0];
             if (file && currentChat) {
-                if (file.size > 10 * 1024 * 1024) { showToast('❌ Файл слишком большой! Максимум 10MB'); return; }
-                await sendEncryptedFile(file);
+                await handleFileSend(file);
             }
         };
         input.click();
     });
 }
 
-async function sendEncryptedFile(file) {
-    const sharedKey = userKeys.get(currentChat.id);
-    if (!sharedKey) { showToast('❌ Ключ шифрования не найден'); return; }
+async function handleFileSend(file) {
+    if (file.size > 10 * 1024 * 1024) {
+        showToast('❌ Файл слишком большой! Максимум 10MB');
+        return;
+    }
     
-    showToast('📤 Отправка файла...');
-    const fileId = `${Date.now()}_${file.name}`;
-    const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
+    showToast('☁️ Загрузка файла в облако...');
     
-    const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
-    files[fileId] = encryptedFile;
-    localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
-    
-    const success = await sendMessage(currentChat.id, 'file', fileId, {
-        fileName: file.name,
-        fileSize: file.size,
-        fileId: fileId
-    });
-    
-    if (success) {
-        showToast('✅ Файл отправлен!');
-    } else {
-        showToast('❌ Не удалось отправить файл');
+    try {
+        const sharedKey = userKeys.get(currentChat.id);
+        if (!sharedKey) { showToast('❌ Ключ шифрования не найден'); return; }
+        
+        const encryptedBlob = await cryptoManager.encryptBlob(file, sharedKey);
+        const fileId = `${Date.now()}_${file.name}`;
+        const storageRef = ref(storage, `messages/${fileId}`);
+        
+        await uploadBytes(storageRef, encryptedBlob.data);
+        const downloadUrl = await getDownloadURL(storageRef);
+        
+        const success = await sendMessage(currentChat.id, 'file', fileId, {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            fileUrl: downloadUrl,
+            fileIv: Array.from(encryptedBlob.iv),
+            fileId: fileId
+        });
+        
+        if (success) {
+            const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+            files[fileId] = {
+                encryptedData: Array.from(new Uint8Array(encryptedBlob.data)),
+                iv: Array.from(encryptedBlob.iv),
+                name: file.name,
+                size: file.size,
+                type: file.type
+            };
+            localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+            showToast('✅ Файл отправлен!');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки файла:', error);
+        showToast('❌ Ошибка загрузки файла');
     }
 }
 
@@ -871,6 +1016,7 @@ function renderMessagesForChat(chatId) {
     
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
+        
         if (msg.type === 'text') {
             return `<div class="message ${isSent ? 'sent' : 'received'}">
                         <div>${escapeHtml(msg.content)}</div>
@@ -893,14 +1039,14 @@ function renderMessagesForChat(chatId) {
     document.querySelectorAll('.message-file').forEach(el => {
         el.addEventListener('click', async () => {
             const fileId = el.dataset.fileId;
-            await downloadAndDecryptFile(fileId);
+            await downloadFile(fileId);
         });
     });
     
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-async function downloadAndDecryptFile(fileId) {
+async function downloadFile(fileId) {
     const sharedKey = userKeys.get(currentChat.id);
     if (!sharedKey) { showToast('❌ Ключ шифрования не найден'); return; }
     
@@ -910,21 +1056,30 @@ async function downloadAndDecryptFile(fileId) {
     if (encryptedFile) {
         try {
             showToast('📥 Расшифровка файла...');
-            const decryptedFile = await cryptoManager.decryptFileFromText(encryptedFile, sharedKey);
-            const blob = new Blob([decryptedFile.data], { type: decryptedFile.type });
-            const url = URL.createObjectURL(blob);
+            const decryptedBlob = await cryptoManager.decryptBlob(
+                new Uint8Array(encryptedFile.encryptedData),
+                sharedKey,
+                new Uint8Array(encryptedFile.iv)
+            );
+            
+            const url = URL.createObjectURL(decryptedBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = decryptedFile.name;
+            a.download = encryptedFile.name;
             a.click();
             URL.revokeObjectURL(url);
             showToast('✅ Файл загружен!');
         } catch (error) {
+            console.error('Ошибка дешифрования файла:', error);
             showToast('❌ Ошибка дешифрования файла');
         }
     } else {
         showToast('❌ Файл не найден');
     }
+}
+
+function getChatId(userId1, userId2) {
+    return [userId1, userId2].sort().join('_');
 }
 
 // ============= ВЫБОР ЧАТА =============
@@ -938,6 +1093,7 @@ function selectChat(contact) {
         chatCodeSpan.onclick = () => copyToClipboard(contact.userCode);
     }
     if (copyChatCodeBtn) copyChatCodeBtn.onclick = () => copyToClipboard(contact.userCode);
+    if (deleteContactBtn) deleteContactBtn.style.display = 'inline-block';
     
     const isOnline = contact.status === 'online';
     if (chatStatus) {
@@ -953,7 +1109,6 @@ function selectChat(contact) {
     const chatId = getChatId(currentUser.id, contact.id);
     renderMessagesForChat(chatId);
     
-    // Подсветка активного контакта
     document.querySelectorAll('.contact-item').forEach(item => {
         if (item.dataset.contactId === contact.id) {
             item.classList.add('active');
@@ -988,8 +1143,6 @@ function setupRealtimeUsers() {
             }
         });
         renderContacts();
-    }, (error) => {
-        console.error('Ошибка обновления статусов:', error);
     });
 }
 
@@ -1052,4 +1205,4 @@ if (muteVideoBtn) {
 }
 
 window.copyToClipboard = copyToClipboard;
-console.log('✅ Flux Messenger загружен! Сообщения хранятся в Firestore в зашифрованном виде.');
+console.log('✅ Flux Messenger загружен!');
