@@ -1,10 +1,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, orderBy, serverTimestamp, deleteDoc, limit } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
   apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
   authDomain: "flux-a1396.firebaseapp.com",
+  databaseURL: "https://flux-a1396-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "flux-a1396",
   storageBucket: "flux-a1396.firebasestorage.app",
   messagingSenderId: "670873031130",
@@ -355,7 +356,7 @@ registerBtn.addEventListener('click', async () => {
             createdAt: serverTimestamp()
         });
         
-        authError.textContent = `Регистрация успешна! Ваш код: ${userCode}`;
+        authError.textContent = `✅ Регистрация успешна! Ваш код: ${userCode}`;
         authError.style.color = '#4caf50';
         
         setTimeout(() => {
@@ -365,7 +366,7 @@ registerBtn.addEventListener('click', async () => {
         
     } catch (error) {
         console.error('Ошибка регистрации:', error);
-        authError.textContent = 'Ошибка регистрации: ' + error.message;
+        authError.textContent = '❌ Ошибка регистрации: ' + error.message;
     }
 });
 
@@ -427,7 +428,7 @@ loginBtn.addEventListener('click', async () => {
         
     } catch (error) {
         console.error('Ошибка входа:', error);
-        authError.textContent = 'Ошибка входа: ' + error.message;
+        authError.textContent = '❌ Ошибка входа: ' + error.message;
     }
 });
 
@@ -525,7 +526,7 @@ modalSearchBtn.addEventListener('click', async () => {
         }
         selectChat(user);
     } else {
-        modalError.textContent = 'Пользователь с таким кодом не найден';
+        modalError.textContent = '❌ Пользователь с таким кодом не найден';
     }
 });
 
@@ -535,26 +536,30 @@ codeInput.addEventListener('keypress', (e) => {
 
 // ============= ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ =============
 async function loadUsers() {
-    const usersRef = collection(db, 'users');
-    const querySnapshot = await getDocs(usersRef);
-    
-    users.clear();
-    for (const doc of querySnapshot.docs) {
-        const user = doc.data();
-        if (doc.id !== currentUser.id) {
-            users.set(doc.id, {
-                id: doc.id,
-                username: user.username,
-                status: user.status,
-                userCode: user.formattedCode || formatUserCode(user.userCode)
-            });
-            
-            await generateSharedKey(doc.id);
-            await establishPeerConnection(doc.id);
+    try {
+        const usersRef = collection(db, 'users');
+        const querySnapshot = await getDocs(usersRef);
+        
+        users.clear();
+        for (const doc of querySnapshot.docs) {
+            const user = doc.data();
+            if (doc.id !== currentUser.id) {
+                users.set(doc.id, {
+                    id: doc.id,
+                    username: user.username,
+                    status: user.status,
+                    userCode: user.formattedCode || formatUserCode(user.userCode)
+                });
+                
+                await generateSharedKey(doc.id);
+                await establishPeerConnection(doc.id);
+            }
         }
+        
+        renderUsersList();
+    } catch (error) {
+        console.error('Ошибка загрузки пользователей:', error);
     }
-    
-    renderUsersList();
 }
 
 async function generateSharedKey(userId) {
@@ -749,7 +754,7 @@ sendBtn.addEventListener('click', async () => {
         });
         messageInput.value = '';
     } else {
-        alert('Пользователь не в сети');
+        showToast('❌ Пользователь не в сети');
     }
 });
 
@@ -765,15 +770,22 @@ fileBtn.addEventListener('click', () => {
     input.type = 'file';
     input.onchange = async (e) => {
         const file = e.target.files[0];
-        if (file && currentChat) await sendEncryptedFile(file);
+        if (file && currentChat) {
+            if (file.size > 10 * 1024 * 1024) {
+                showToast('❌ Файл слишком большой! Максимум 10MB');
+                return;
+            }
+            await sendEncryptedFile(file);
+        }
     };
     input.click();
 });
 
 async function sendEncryptedFile(file) {
     const sharedKey = userKeys.get(currentChat.id);
-    if (!sharedKey) { alert('Ключ шифрования не найден'); return; }
+    if (!sharedKey) { showToast('❌ Ключ шифрования не найден'); return; }
     
+    showToast('📤 Отправка файла...');
     const fileId = `${Date.now()}_${file.name}`;
     const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
     
@@ -800,8 +812,9 @@ async function sendEncryptedFile(file) {
             fileSize: file.size,
             timestamp: new Date()
         });
+        showToast('✅ Файл отправлен!');
     } else {
-        alert('Не удалось отправить файл');
+        showToast('❌ Не удалось отправить файл');
     }
 }
 
@@ -822,7 +835,8 @@ function loadMessages() {
     if (messagesListener) messagesListener();
     
     const messagesRef = collection(db, 'messages');
-    const q = query(messagesRef, where('participants', 'array-contains', currentUser.id), orderBy('timestamp', 'asc'));
+    // Используем более простой запрос без orderBy для избежания индексов
+    const q = query(messagesRef, where('participants', 'array-contains', currentUser.id));
     
     messagesListener = onSnapshot(q, (snapshot) => {
         const relevantMessages = [];
@@ -833,11 +847,24 @@ function loadMessages() {
                 relevantMessages.push({ id: doc.id, ...message });
             }
         });
+        // Сортируем на клиенте
+        relevantMessages.sort((a, b) => {
+            const timeA = a.timestamp?.toDate?.() || new Date(a.timestamp);
+            const timeB = b.timestamp?.toDate?.() || new Date(b.timestamp);
+            return timeA - timeB;
+        });
         renderMessages(relevantMessages);
+    }, (error) => {
+        console.error('Ошибка загрузки сообщений:', error);
+        if (error.code === 'failed-precondition') {
+            showToast('⚠️ Требуется создать индекс в Firebase Console');
+        }
     });
 }
 
 function renderMessages(messages) {
+    if (!messagesContainer) return;
+    
     messagesContainer.innerHTML = messages.map(msg => {
         const isSent = msg.senderId === currentUser.id;
         if (msg.type === 'text') {
@@ -871,13 +898,14 @@ function renderMessages(messages) {
 
 async function downloadAndDecryptFile(fileId) {
     const sharedKey = userKeys.get(currentChat.id);
-    if (!sharedKey) { alert('Ключ шифрования не найден'); return; }
+    if (!sharedKey) { showToast('❌ Ключ шифрования не найден'); return; }
     
     const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
     const encryptedFile = files[fileId];
     
     if (encryptedFile) {
         try {
+            showToast('📥 Расшифровка файла...');
             const decryptedFile = await cryptoManager.decryptFileFromText(encryptedFile, sharedKey);
             const blob = new Blob([decryptedFile.data], { type: decryptedFile.type });
             const url = URL.createObjectURL(blob);
@@ -886,12 +914,13 @@ async function downloadAndDecryptFile(fileId) {
             a.download = decryptedFile.name;
             a.click();
             URL.revokeObjectURL(url);
+            showToast('✅ Файл загружен!');
         } catch (error) {
             console.error('Ошибка дешифрования файла:', error);
-            alert('Ошибка дешифрования файла');
+            showToast('❌ Ошибка дешифрования файла');
         }
     } else {
-        alert('Файл не найден');
+        showToast('❌ Файл не найден');
     }
 }
 
@@ -901,7 +930,7 @@ function selectChat(user) {
     chatUsername.textContent = user.username;
     chatCodeSpan.textContent = `🔑 ${user.userCode || '---'}`;
     chatCodeSpan.onclick = () => user.userCode && copyToClipboard(user.userCode);
-    chatStatus.textContent = user.status === 'online' ? 'В сети' : 'Не в сети';
+    chatStatus.textContent = user.status === 'online' ? '🟢 В сети' : '⚫ Не в сети';
     chatStatus.className = user.status === 'online' ? 'chat-status online' : 'chat-status';
     
     const isOnline = user.status === 'online';
@@ -914,6 +943,8 @@ function selectChat(user) {
 }
 
 function renderUsersList() {
+    if (!usersList) return;
+    
     const searchTerm = searchUsers.value.toLowerCase();
     const filteredUsers = Array.from(users.values()).filter(user => 
         user.username.toLowerCase().includes(searchTerm) || 
@@ -925,7 +956,7 @@ function renderUsersList() {
             <div class="user-avatar">${user.username[0].toUpperCase()}</div>
             <div class="user-name">
                 <div>${escapeHtml(user.username)}</div>
-                <div onclick="event.stopPropagation(); window.copyToClipboard('${user.userCode}')">🔑 ${user.userCode || '---'}</div>
+                <div onclick="event.stopPropagation(); window.copyToClipboard('${user.userCode}')" title="Нажмите чтобы скопировать код">🔑 ${user.userCode || '---'}</div>
             </div>
             <div class="user-status ${user.status === 'online' ? '' : 'offline'}"></div>
         </div>
@@ -952,7 +983,7 @@ async function startCall(isVideo) {
         localVideo.srcObject = localStream;
         
         const peerConnection = peerConnections.get(currentChat.id);
-        if (!peerConnection) { alert('Нет P2P соединения'); return; }
+        if (!peerConnection) { showToast('❌ Нет P2P соединения'); return; }
         
         localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
         peerConnection.ontrack = (event) => {
@@ -964,7 +995,7 @@ async function startCall(isVideo) {
         currentCall = { peerConnection, isVideo };
     } catch (error) {
         console.error('Ошибка звонка:', error);
-        alert('Не удалось начать звонок. Проверьте разрешения для камеры и микрофона.');
+        showToast('❌ Не удалось начать звонок. Проверьте разрешения для камеры и микрофона.');
     }
 }
 
@@ -1009,7 +1040,7 @@ function setupRealtimeUsers() {
         renderUsersList();
         if (currentChat && users.has(currentChat.id)) {
             const updatedUser = users.get(currentChat.id);
-            chatStatus.textContent = updatedUser.status === 'online' ? 'В сети' : 'Не в сети';
+            chatStatus.textContent = updatedUser.status === 'online' ? '🟢 В сети' : '⚫ Не в сети';
             chatStatus.className = updatedUser.status === 'online' ? 'chat-status online' : 'chat-status';
             const isOnline = updatedUser.status === 'online';
             messageInput.disabled = !isOnline;
