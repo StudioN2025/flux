@@ -978,3 +978,208 @@ body {
     background: #999;
     margin-right: 6px;
 }
+/* Добавьте эти стили в конец существующего style.css */
+
+.add-contact {
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.btn-add-contact {
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.btn-add-contact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+}
+
+.btn-add-contact:active {
+    transform: translateY(0);
+}
+
+.contacts-header {
+    padding: 12px 15px;
+    background: #f8f9fa;
+    font-size: 12px;
+    font-weight: 600;
+    color: #495057;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+    letter-spacing: 0.5px;
+}
+
+.contacts-count {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.contacts-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.contact-item {
+    padding: 12px 15px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.contact-item:hover {
+    background: #f8f9fa;
+    transform: translateX(2px);
+}
+
+.contact-item.active {
+    background: linear-gradient(90deg, #e3f2fd 0%, #fff 100%);
+    border-left: 3px solid #667eea;
+}
+
+.contact-avatar {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.contact-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.contact-name {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: #2c3e50;
+}
+
+.contact-code-small {
+    font-size: 10px;
+    color: #667eea;
+    font-family: 'Courier New', monospace;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.contact-status {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px white;
+}
+
+.contact-status.online {
+    background: #4caf50;
+    animation: pulse-green 1.5s infinite;
+}
+
+@keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(76, 175, 80, 0); }
+}
+
+.contact-status.offline {
+    background: #9e9e9e;
+}
+
+.empty-contacts {
+    text-align: center;
+    padding: 50px 20px;
+    color: #adb5bd;
+}
+
+.empty-contacts div:first-child {
+    font-size: 56px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+.empty-contacts div:nth-child(2) {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: #6c757d;
+}
+
+.empty-hint {
+    font-size: 11px;
+    margin-top: 12px;
+    color: #ced4da;
+}
+
+/* Анимация для нового контакта */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.contact-item {
+    animation: slideIn 0.3s ease;
+}
+
+/* Стили для модального окна */
+.modal-content input {
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 2px;
+    text-align: center;
+    font-size: 16px;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .contact-avatar {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+    
+    .contact-name {
+        font-size: 13px;
+    }
+    
+    .contact-code-small {
+        font-size: 9px;
+    }
+    
+    .empty-contacts div:first-child {
+        font-size: 40px;
+    }
+}
