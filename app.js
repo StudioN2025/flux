@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, serverTimestamp, deleteDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+import { getFirestore, collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, serverTimestamp, deleteDoc, orderBy, limit } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
@@ -95,10 +95,9 @@ function deserializeSessionDescription(descriptionObj) {
     return new RTCSessionDescription(descriptionObj);
 }
 
-// ============= УПРАВЛЕНИЕ КОНТАКТАМИ (LOCALSTORAGE) =============
+// ============= УПРАВЛЕНИЕ КОНТАКТАМИ =============
 const STORAGE_KEYS = {
-    CONTACTS: 'flux_contacts',
-    MESSAGES: 'flux_messages'
+    CONTACTS: 'flux_contacts'
 };
 
 function saveContacts(contacts) {
@@ -108,24 +107,6 @@ function saveContacts(contacts) {
 function loadContacts() {
     const contacts = localStorage.getItem(STORAGE_KEYS.CONTACTS);
     return contacts ? JSON.parse(contacts) : [];
-}
-
-function saveMessages(chatId, messages) {
-    const allMessages = JSON.parse(localStorage.getItem(STORAGE_KEYS.MESSAGES) || '{}');
-    allMessages[chatId] = messages;
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
-}
-
-function loadMessagesForChat(chatId) {
-    const allMessages = JSON.parse(localStorage.getItem(STORAGE_KEYS.MESSAGES) || '{}');
-    return allMessages[chatId] || [];
-}
-
-function addMessageToChat(chatId, message) {
-    const messages = loadMessagesForChat(chatId);
-    messages.push(message);
-    saveMessages(chatId, messages);
-    return messages;
 }
 
 // ============= СОСТОЯНИЕ =============
@@ -140,6 +121,7 @@ let currentCall = null;
 let cryptoManager = new CryptoManager();
 let userKeys = new Map();
 let isCodeVisible = false;
+let messagesUnsubscribe = null;
 let statusUnsubscribe = null;
 
 const configuration = {
@@ -198,7 +180,7 @@ function escapeHtml(text) {
 
 function formatTime(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -263,13 +245,11 @@ function toggleCodeVisibility() {
         userCodeSpan.classList.remove('hidden-code');
         userCodeSpan.classList.add('visible-code');
         if (toggleCodeBtn) toggleCodeBtn.textContent = '🙈';
-        if (toggleCodeBtn) toggleCodeBtn.title = 'Скрыть код';
     } else {
         userCodeSpan.textContent = '••••-••••-••••';
         userCodeSpan.classList.add('hidden-code');
         userCodeSpan.classList.remove('visible-code');
         if (toggleCodeBtn) toggleCodeBtn.textContent = '👁️';
-        if (toggleCodeBtn) toggleCodeBtn.title = 'Показать код';
     }
 }
 
@@ -282,7 +262,7 @@ function renderContacts() {
             <div class="empty-contacts">
                 <div>📭</div>
                 <div>Нет контактов</div>
-                <div class="empty-hint">Нажмите "Добавить контакт" чтобы начать общение</div>
+                <div class="empty-hint">Нажмите "Добавить контакт" или напишите кому-нибудь</div>
             </div>
         `;
         if (contactsCount) contactsCount.textContent = '0';
@@ -309,6 +289,27 @@ function renderContacts() {
             if (contact) selectChat(contact);
         });
     });
+}
+
+async function addContact(userId, username, userCode) {
+    if (contacts.some(c => c.id === userId)) return false;
+    
+    const newContact = {
+        id: userId,
+        username: username,
+        userCode: userCode,
+        status: 'offline',
+        addedAt: Date.now()
+    };
+    
+    contacts.push(newContact);
+    saveContacts(contacts);
+    renderContacts();
+    
+    await generateSharedKey(userId);
+    await establishPeerConnection(userId);
+    
+    return true;
 }
 
 async function addContactByCode(code) {
@@ -342,22 +343,8 @@ async function addContactByCode(code) {
             return false;
         }
         
-        const newContact = {
-            id: userDoc.id,
-            username: userData.username || 'Unknown',
-            userCode: userData.formattedCode || formatUserCode(userData.userCode),
-            status: userData.status || 'offline',
-            addedAt: Date.now()
-        };
-        
-        contacts.push(newContact);
-        saveContacts(contacts);
-        renderContacts();
-        
-        await generateSharedKey(userDoc.id);
-        await establishPeerConnection(userDoc.id);
-        
-        showToast(`✅ ${newContact.username} добавлен в контакты!`);
+        await addContact(userDoc.id, userData.username, userData.formattedCode || formatUserCode(userData.userCode));
+        showToast(`✅ ${userData.username} добавлен в контакты!`);
         return true;
         
     } catch (error) {
@@ -466,7 +453,6 @@ loginBtn.addEventListener('click', async () => {
         isCodeVisible = false;
         userCodeSpan.textContent = '••••-••••-••••';
         userCodeSpan.classList.add('hidden-code');
-        if (toggleCodeBtn) toggleCodeBtn.textContent = '👁️';
         if (toggleCodeBtn) toggleCodeBtn.onclick = toggleCodeVisibility;
         if (copyCodeBtn) copyCodeBtn.onclick = () => copyToClipboard(currentUser.userCode);
         if (userCodeSpan) userCodeSpan.onclick = () => {
@@ -484,6 +470,7 @@ loginBtn.addEventListener('click', async () => {
         }
         
         setupRealtimeUsers();
+        setupMessagesListener();
         setupDataChannelSignaling();
         
     } catch (error) {
@@ -507,6 +494,7 @@ logoutBtn.addEventListener('click', async () => {
         userKeys.clear();
         if (localStream) localStream.getTracks().forEach(track => track.stop());
         
+        if (messagesUnsubscribe) messagesUnsubscribe();
         if (statusUnsubscribe) statusUnsubscribe();
     }
     
@@ -649,52 +637,143 @@ function setupDataChannelSignaling() {
     });
 }
 
-// ============= ОБРАБОТКА СООБЩЕНИЙ =============
-async function handleEncryptedData(encryptedData, fromUserId) {
-    const sharedKey = userKeys.get(fromUserId);
-    if (!sharedKey || !currentUser) return;
+// ============= ОБРАБОТКА СООБЩЕНИЙ (FIRESTORE) =============
+async function saveMessageToFirestore(chatId, message) {
+    if (!currentUser) return;
     
     try {
-        const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
-        const data = JSON.parse(decrypted);
-        const contact = contacts.find(c => c.id === fromUserId);
+        const sharedKey = userKeys.get(chatId.split('_').find(id => id !== currentUser.id));
+        if (!sharedKey) return;
         
-        if (contact) {
-            const chatId = getChatId(currentUser.id, fromUserId);
-            
-            if (data.type === 'text') {
-                const message = {
-                    id: Date.now(),
-                    senderId: fromUserId,
-                    receiverId: currentUser.id,
-                    content: data.content,
-                    type: 'text',
-                    timestamp: Date.now(),
-                    isRead: false
-                };
-                addMessageToChat(chatId, message);
-                if (currentChat && currentChat.id === fromUserId) renderMessagesForChat(chatId);
-            } else if (data.type === 'file') {
-                const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
-                files[data.fileId] = { encryptedData: data.fileData, name: data.fileName, size: data.fileSize, type: data.fileType };
-                localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+        const encryptedContent = await cryptoManager.encryptText(JSON.stringify({
+            content: message.content,
+            fileName: message.fileName,
+            fileSize: message.fileSize,
+            fileId: message.fileId
+        }), sharedKey);
+        
+        const messagesRef = collection(db, 'messages');
+        await addDoc(messagesRef, {
+            chatId: chatId,
+            senderId: message.senderId,
+            receiverId: message.receiverId,
+            encryptedData: encryptedContent,
+            type: message.type,
+            timestamp: serverTimestamp(),
+            participants: [message.senderId, message.receiverId]
+        });
+    } catch (error) {
+        console.error('Ошибка сохранения сообщения:', error);
+    }
+}
+
+function setupMessagesListener() {
+    if (!currentUser) return;
+    
+    const messagesRef = collection(db, 'messages');
+    const q = query(messagesRef, where('participants', 'array-contains', currentUser.id), orderBy('timestamp', 'asc'));
+    
+    messagesUnsubscribe = onSnapshot(q, async (snapshot) => {
+        snapshot.docChanges().forEach(async (change) => {
+            if (change.type === 'added') {
+                const messageData = change.doc.data();
+                const otherUserId = messageData.participants.find(id => id !== currentUser.id);
                 
-                const message = {
-                    id: Date.now(),
-                    senderId: fromUserId,
-                    receiverId: currentUser.id,
-                    content: data.fileId,
-                    type: 'file',
-                    fileName: data.fileName,
-                    fileSize: data.fileSize,
-                    timestamp: Date.now(),
-                    isRead: false
-                };
-                addMessageToChat(chatId, message);
-                if (currentChat && currentChat.id === fromUserId) renderMessagesForChat(chatId);
+                // Автоматически добавляем в контакты, если нет в списке
+                if (otherUserId && !contacts.some(c => c.id === otherUserId)) {
+                    const usersRef = collection(db, 'users');
+                    const userDoc = await getDocs(query(usersRef, where('__name__', '==', otherUserId)));
+                    if (!userDoc.empty) {
+                        const userData = userDoc.docs[0].data();
+                        await addContact(otherUserId, userData.username, userData.formattedCode || formatUserCode(userData.userCode));
+                        showToast(`📱 ${userData.username} добавлен в контакты (получено сообщение)`);
+                    }
+                }
+                
+                // Если это сообщение для текущего чата, отображаем его
+                if (currentChat && currentChat.id === otherUserId) {
+                    await displayMessage(messageData);
+                }
             }
+        });
+    }, (error) => {
+        console.error('Ошибка загрузки сообщений:', error);
+    });
+}
+
+async function displayMessage(messageData) {
+    const otherUserId = messageData.participants.find(id => id !== currentUser.id);
+    const sharedKey = userKeys.get(otherUserId);
+    
+    if (!sharedKey) return;
+    
+    try {
+        const decrypted = await cryptoManager.decryptText(messageData.encryptedData, sharedKey);
+        const data = JSON.parse(decrypted);
+        
+        const message = {
+            id: messageData.timestamp?.toDate?.()?.getTime() || Date.now(),
+            senderId: messageData.senderId,
+            receiverId: messageData.receiverId,
+            content: data.content,
+            type: messageData.type,
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            fileId: data.fileId,
+            timestamp: messageData.timestamp?.toDate?.() || new Date()
+        };
+        
+        const chatId = getChatId(currentUser.id, otherUserId);
+        const messages = JSON.parse(localStorage.getItem(`flux_messages_${chatId}`) || '[]');
+        messages.push(message);
+        localStorage.setItem(`flux_messages_${chatId}`, JSON.stringify(messages));
+        
+        if (currentChat && currentChat.id === otherUserId) {
+            renderMessagesForChat(chatId);
         }
-    } catch (error) { console.error('Ошибка дешифрования:', error); }
+    } catch (error) {
+        console.error('Ошибка дешифрования сообщения:', error);
+    }
+}
+
+async function sendMessage(userId, type, content, metadata = {}) {
+    const chatId = getChatId(currentUser.id, userId);
+    const sharedKey = userKeys.get(userId);
+    if (!sharedKey) return false;
+    
+    const message = {
+        id: Date.now(),
+        senderId: currentUser.id,
+        receiverId: userId,
+        content: content,
+        type: type,
+        timestamp: new Date(),
+        ...metadata
+    };
+    
+    // Сохраняем локально
+    const messages = JSON.parse(localStorage.getItem(`flux_messages_${chatId}`) || '[]');
+    messages.push(message);
+    localStorage.setItem(`flux_messages_${chatId}`, JSON.stringify(messages));
+    
+    if (currentChat && currentChat.id === userId) {
+        renderMessagesForChat(chatId);
+    }
+    
+    // Отправляем через P2P и сохраняем в Firestore
+    const encryptedData = await sendEncryptedData(userId, {
+        type: type,
+        content: content,
+        fileName: metadata.fileName,
+        fileSize: metadata.fileSize,
+        fileId: metadata.fileId
+    });
+    
+    if (encryptedData) {
+        await saveMessageToFirestore(chatId, message);
+    }
+    
+    return true;
 }
 
 async function sendEncryptedData(userId, data) {
@@ -721,24 +800,12 @@ if (sendBtn) {
         if (!messageInput.value.trim() || !currentChat) return;
         
         const content = messageInput.value.trim();
-        const success = await sendEncryptedData(currentChat.id, { type: 'text', content: content });
+        const success = await sendMessage(currentChat.id, 'text', content);
         
         if (success) {
-            const chatId = getChatId(currentUser.id, currentChat.id);
-            const message = {
-                id: Date.now(),
-                senderId: currentUser.id,
-                receiverId: currentChat.id,
-                content: content,
-                type: 'text',
-                timestamp: Date.now(),
-                isRead: true
-            };
-            addMessageToChat(chatId, message);
-            renderMessagesForChat(chatId);
             messageInput.value = '';
         } else {
-            showToast('❌ Пользователь не в сети');
+            showToast('❌ Пользователь не в сети, сообщение будет доставлено позже');
         }
     });
 }
@@ -775,29 +842,17 @@ async function sendEncryptedFile(file) {
     const fileId = `${Date.now()}_${file.name}`;
     const encryptedFile = await cryptoManager.encryptFileToText(file, sharedKey);
     
-    const success = await sendEncryptedData(currentChat.id, {
-        type: 'file', fileId: fileId, fileName: file.name, fileSize: file.size, fileType: file.type, fileData: encryptedFile
+    const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+    files[fileId] = encryptedFile;
+    localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+    
+    const success = await sendMessage(currentChat.id, 'file', fileId, {
+        fileName: file.name,
+        fileSize: file.size,
+        fileId: fileId
     });
     
     if (success) {
-        const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
-        files[fileId] = encryptedFile;
-        localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
-        
-        const chatId = getChatId(currentUser.id, currentChat.id);
-        const message = {
-            id: Date.now(),
-            senderId: currentUser.id,
-            receiverId: currentChat.id,
-            content: fileId,
-            type: 'file',
-            fileName: file.name,
-            fileSize: file.size,
-            timestamp: Date.now(),
-            isRead: true
-        };
-        addMessageToChat(chatId, message);
-        renderMessagesForChat(chatId);
         showToast('✅ Файл отправлен!');
     } else {
         showToast('❌ Не удалось отправить файл');
@@ -806,7 +861,7 @@ async function sendEncryptedFile(file) {
 
 // ============= ОТОБРАЖЕНИЕ СООБЩЕНИЙ =============
 function renderMessagesForChat(chatId) {
-    const messages = loadMessagesForChat(chatId);
+    const messages = JSON.parse(localStorage.getItem(`flux_messages_${chatId}`) || '[]');
     if (!messagesContainer) return;
     
     if (!messages || messages.length === 0) {
@@ -997,4 +1052,4 @@ if (muteVideoBtn) {
 }
 
 window.copyToClipboard = copyToClipboard;
-console.log('✅ Flux Messenger загружен! Контакты сохраняются локально.');
+console.log('✅ Flux Messenger загружен! Сообщения хранятся в Firestore в зашифрованном виде.');
