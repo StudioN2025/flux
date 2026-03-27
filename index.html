@@ -36,9 +36,12 @@
                         <div class="user-details">
                             <div class="username" id="current-user"></div>
                             <div class="user-code-container">
-                                <span class="user-code-label">🔑 Код:</span>
-                                <span class="user-code" id="user-code"></span>
-                                <button class="copy-code-btn" id="copy-code-btn" title="Скопировать код">📋</button>
+                                <span class="user-code-label">🔑 Ваш код:</span>
+                                <div class="code-wrapper">
+                                    <span class="user-code" id="user-code">••••-••••-••••</span>
+                                    <button class="toggle-code-btn" id="toggle-code-btn" title="Показать/скрыть код">👁️</button>
+                                    <button class="copy-code-btn" id="copy-code-btn" title="Скопировать код">📋</button>
+                                </div>
                             </div>
                             <div class="status" id="user-status">Офлайн</div>
                         </div>
@@ -58,7 +61,11 @@
                             <div class="chat-avatar">👤</div>
                             <div class="chat-user-details">
                                 <div class="chat-username" id="chat-username">Выберите чат</div>
-                                <div class="chat-code" id="chat-code"></div>
+                                <div class="chat-code-container">
+                                    <span class="chat-code-label">🔑 Код:</span>
+                                    <span class="chat-code" id="chat-code"></span>
+                                    <button class="copy-chat-code-btn" id="copy-chat-code-btn" style="display: none;">📋</button>
+                                </div>
                                 <div class="chat-status" id="chat-status">Не в сети</div>
                             </div>
                         </div>
@@ -114,6 +121,108 @@
 
     <!-- Уведомление о копировании -->
     <div id="copy-toast" class="toast hidden">✅ Код скопирован!</div>
+
+    <style>
+        .code-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
+        .toggle-code-btn {
+            background: none;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 3px 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            color: #666;
+        }
+        
+        .toggle-code-btn:hover {
+            background: #e0e0e0;
+            transform: scale(1.02);
+        }
+        
+        .chat-code-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 2px 0;
+            flex-wrap: wrap;
+        }
+        
+        .chat-code-label {
+            font-size: 10px;
+            color: #888;
+        }
+        
+        .chat-code {
+            font-size: 10px;
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+        }
+        
+        .chat-code:hover {
+            text-decoration: underline;
+        }
+        
+        .copy-chat-code-btn {
+            background: none;
+            border: none;
+            font-size: 10px;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 4px;
+            color: #666;
+        }
+        
+        .copy-chat-code-btn:hover {
+            background: #e0e0e0;
+        }
+        
+        .user-code {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: #667eea;
+            background: #f0f0f0;
+            padding: 4px 8px;
+            border-radius: 6px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .user-code.hidden-code {
+            filter: blur(4px);
+            background: #e0e0e0;
+            cursor: pointer;
+        }
+        
+        .user-code.hidden-code:hover {
+            filter: blur(2px);
+        }
+        
+        .user-code.visible-code {
+            filter: none;
+        }
+        
+        .user-code-container {
+            margin: 5px 0;
+        }
+        
+        .code-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+    </style>
 
     <script type="module" src="app.js"></script>
 </body>
