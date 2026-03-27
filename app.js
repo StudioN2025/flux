@@ -4,12 +4,13 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstati
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-    apiKey: "AIzaSyDqf_OGOBlrNHEBqs-PpdzPBSiQH8WifdA",
-    authDomain: "flux-a1396.firebaseapp.com",
-    projectId: "flux-a1396",
-    storageBucket: "flux-a1396.firebasestorage.app",
-    messagingSenderId: "1007504121071",
-    appId: "1:1007504121071:web:023bd25e5a5a51026717b0"
+  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
+  authDomain: "flux-a1396.firebaseapp.com",
+  databaseURL: "https://flux-a1396-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "flux-a1396",
+  storageBucket: "flux-a1396.firebasestorage.app",
+  messagingSenderId: "670873031130",
+  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
 };
 
 const app = initializeApp(firebaseConfig);
