@@ -4,13 +4,12 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstati
 
 // Firebase конфигурация - ЗАМЕНИТЕ НА ВАШУ!
 const firebaseConfig = {
-  apiKey: "AIzaSyD1govXD95pUFr5JfPClaciG76L4o3sUjw",
-  authDomain: "flux-a1396.firebaseapp.com",
-  databaseURL: "https://flux-a1396-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "flux-a1396",
-  storageBucket: "flux-a1396.firebasestorage.app",
-  messagingSenderId: "670873031130",
-  appId: "1:670873031130:web:87f8dfcafbe68c38a470e3"
+    apiKey: "AIzaSyDqf_OGOBlrNHEBqs-PpdzPBSiQH8WifdA",
+    authDomain: "flux-a1396.firebaseapp.com",
+    projectId: "flux-a1396",
+    storageBucket: "flux-a1396.firebasestorage.app",
+    messagingSenderId: "1007504121071",
+    appId: "1:1007504121071:web:023bd25e5a5a51026717b0"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -60,6 +59,10 @@ class CryptoManager {
     }
     
     async decryptText(encryptedObj, key) {
+        if (!encryptedObj || !encryptedObj.data || !encryptedObj.iv) {
+            console.warn('Invalid encrypted object');
+            return null;
+        }
         try {
             const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(encryptedObj.iv) }, key, new Uint8Array(encryptedObj.data));
             return this.decoder.decode(decryptedData);
@@ -635,14 +638,20 @@ async function establishPeerConnection(userId) {
     dataChannel.onopen = () => console.log(`🔐 P2P channel opened with ${userId}`);
     dataChannel.onmessage = async (event) => {
         try {
-            const encryptedData = JSON.parse(event.data);
-            const sharedKey = userKeys.get(userId);
-            if (sharedKey) {
-                const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
-                if (decrypted) {
-                    const data = JSON.parse(decrypted);
-                    await handleIncomingMessage(data, userId);
+            const data = JSON.parse(event.data);
+            // Проверяем, что это зашифрованные данные (есть поля data и iv)
+            if (data.data && data.iv) {
+                const sharedKey = userKeys.get(userId);
+                if (sharedKey) {
+                    const decrypted = await cryptoManager.decryptText(data, sharedKey);
+                    if (decrypted) {
+                        const messageData = JSON.parse(decrypted);
+                        await handleIncomingMessage(messageData, userId);
+                    }
                 }
+            } else {
+                // Это не зашифрованные данные, возможно сигнал
+                console.log('Received non-encrypted data:', data);
             }
         } catch (error) {
             console.error('Ошибка обработки сообщения:', error);
@@ -665,13 +674,15 @@ async function establishPeerConnection(userId) {
         dataChannels.set(userId, channel);
         channel.onmessage = async (event) => {
             try {
-                const encryptedData = JSON.parse(event.data);
-                const sharedKey = userKeys.get(userId);
-                if (sharedKey) {
-                    const decrypted = await cryptoManager.decryptText(encryptedData, sharedKey);
-                    if (decrypted) {
-                        const data = JSON.parse(decrypted);
-                        await handleIncomingMessage(data, userId);
+                const data = JSON.parse(event.data);
+                if (data.data && data.iv) {
+                    const sharedKey = userKeys.get(userId);
+                    if (sharedKey) {
+                        const decrypted = await cryptoManager.decryptText(data, sharedKey);
+                        if (decrypted) {
+                            const messageData = JSON.parse(decrypted);
+                            await handleIncomingMessage(messageData, userId);
+                        }
                     }
                 }
             } catch (error) {
@@ -790,6 +801,9 @@ async function handleIncomingMessage(data, fromUserId) {
     
     if (currentChat && currentChat.id === fromUserId) {
         renderMessagesForChat(chatId);
+        showToast(`📩 Новое сообщение от ${currentChat.username}`);
+    } else {
+        showToast(`📩 Новое сообщение от ${data.senderName || 'контакта'}`);
     }
 }
 
@@ -859,22 +873,32 @@ async function displayMessage(messageData) {
         if (messageData.type === 'text') {
             if (messageData.encryptedContent) {
                 const decrypted = await cryptoManager.decryptText(messageData.encryptedContent, sharedKey);
-                content = decrypted;
+                if (decrypted) {
+                    content = decrypted;
+                } else {
+                    console.warn('Failed to decrypt message');
+                    return;
+                }
             }
         } else if (messageData.type === 'file' && messageData.fileUrl) {
-            const response = await fetch(messageData.fileUrl);
-            const encryptedData = await response.arrayBuffer();
-            
-            const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
-            files[messageData.content] = {
-                encryptedData: Array.from(new Uint8Array(encryptedData)),
-                iv: messageData.fileIv,
-                name: messageData.fileName,
-                size: messageData.fileSize,
-                type: messageData.fileType
-            };
-            localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
-            content = messageData.content;
+            try {
+                const response = await fetch(messageData.fileUrl);
+                const encryptedData = await response.arrayBuffer();
+                
+                const files = JSON.parse(localStorage.getItem('flux_encrypted_files') || '{}');
+                files[messageData.content] = {
+                    encryptedData: Array.from(new Uint8Array(encryptedData)),
+                    iv: messageData.fileIv,
+                    name: messageData.fileName,
+                    size: messageData.fileSize,
+                    type: messageData.fileType
+                };
+                localStorage.setItem('flux_encrypted_files', JSON.stringify(files));
+                content = messageData.content;
+            } catch (error) {
+                console.error('Error downloading file:', error);
+                return;
+            }
         }
         
         const message = {
@@ -948,7 +972,8 @@ async function sendMessage(userId, type, content, metadata = {}) {
         type: type,
         content: content,
         fileName: metadata.fileName,
-        fileSize: metadata.fileSize
+        fileSize: metadata.fileSize,
+        senderName: currentUser.username
     });
     
     return true;
